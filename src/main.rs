@@ -1,9 +1,12 @@
+use scraper::{Html, Selector};
 use serde_derive::Deserialize;
 use std::process::Command;
 use std::{fs, path::Path};
 use structopt::StructOpt;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+const ATCODER_ENDPOINT: &str = "https://atcoder.jp";
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -67,6 +70,88 @@ fn new_project(opt: NewOpt) -> Result<()> {
     Ok(())
 }
 
+async fn login() -> Result<()> {
+    let client = reqwest::Client::builder().cookie_store(true).build()?;
+    let resp = client
+        .get(&format!("{}/login", ATCODER_ENDPOINT))
+        .send()
+        .await?
+        .error_for_status()?;
+
+    // let cookies = resp.cookies();
+
+    let doc = resp.text().await?;
+
+    let document = Html::parse_document(&doc);
+
+    // dbg!(&document);
+
+    let csrf_token = document
+        .select(&Selector::parse("input[name=\"csrf_token\"]").unwrap())
+        .next()
+        .ok_or("cannot find csrf_token")?;
+
+    // dbg!(&csrf_token);
+
+    let csrf_token = csrf_token
+        .value()
+        .attr("value")
+        .ok_or("cannot find csrf_token")?;
+
+    let username = dialoguer::Input::<String>::new()
+        .with_prompt("Username")
+        .interact()?;
+
+    let password = dialoguer::PasswordInput::new()
+        .with_prompt("Password")
+        .interact()?;
+
+    let res = client
+        .post(&format!("{}/login", ATCODER_ENDPOINT))
+        .form(&[
+            ("username", username.as_ref()),
+            ("password", password.as_ref()),
+            ("csrf_token", csrf_token),
+        ])
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+
+    let res = Html::parse_document(&res);
+
+    // On failure:
+    // <div class="alert alert-danger alert-dismissible col-sm-12 fade in" role="alert">
+    //   ...
+    //   {error message}
+    // </div>
+    if let Some(err) = res
+        .select(&Selector::parse("div.alert-danger").unwrap())
+        .next()
+    {
+        Err(format!(
+            "Login failed: {}",
+            err.last_child().unwrap().value().as_text().unwrap().trim()
+        ))?
+    }
+
+    // On success:
+    // <div class="alert alert-success alert-dismissible col-sm-12 fade in" role="alert" >
+    //     ...
+    //     ようこそ、tanakh さん。
+    // </div>
+    if let Some(_) = res
+        .select(&Selector::parse("div.alert-success").unwrap())
+        .next()
+    {
+        println!("Login succeeded.");
+        return Ok(());
+    }
+
+    Err("Login failed: Unknown error".into())
+}
+
 #[derive(StructOpt)]
 enum Opt {
     New(NewOpt),
@@ -76,9 +161,11 @@ enum Opt {
     Test,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     match Opt::from_args() {
         Opt::New(opt) => new_project(opt),
+        Opt::Login => login().await,
         _ => unimplemented!(),
     }
 }
