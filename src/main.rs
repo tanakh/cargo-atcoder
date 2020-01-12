@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use futures::join;
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_derive::Deserialize;
 use sha2::digest::Digest;
@@ -6,8 +7,12 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use structopt::StructOpt;
 
 mod atcoder;
@@ -108,11 +113,7 @@ async fn watch() -> Result<()> {
     let package = manifest.package.unwrap();
     let contest_id = package.name;
 
-    let contest_info = atc.contest_info(&contest_id).await?;
-
     // dbg!(&contest_info);
-
-    // atc.submit(contest_id, "a", "HOGEHOGE").await?;
 
     // let test_cases = atc.test_cases(&contest_info.problems[0].url).await?;
     // dbg!(&test_cases);
@@ -124,10 +125,41 @@ async fn watch() -> Result<()> {
     //     dbg!(&status);
     // }
 
-    // unimplemented!();
+    let atc = Arc::new(atc);
+
+    let submission_fut = {
+        let atc = atc.clone();
+        let contest_id = contest_id.clone();
+        tokio::spawn(async move { watch_submission_status(atc, &contest_id).await })
+    };
+
+    let file_watcher_fut = {
+        let atc = atc.clone();
+        let contest_id = contest_id.clone();
+        tokio::spawn(async move {
+            watch_filesystem(atc, &contest_id).await;
+        })
+    };
+
+    // submission_fut.await?;
+    // file_watcher_fut.await?;
+
+    let _r = join!(submission_fut, file_watcher_fut);
+    Ok(())
+}
+
+async fn watch_submission_status(atc: Arc<AtCoder>, contest_id: &str) -> Result<()> {
+    loop {
+        tokio::time::delay_for(Duration::from_secs(3)).await;
+    }
+}
+
+async fn watch_filesystem(atc: Arc<AtCoder>, contest_id: &str) -> Result<()> {
+    let contest_info = atc.contest_info(&contest_id).await?;
 
     let (tx, rx) = channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(150))?;
+    let rx = Arc::new(Mutex::new(rx));
 
     let cwd = std::env::current_dir()?;
     let src_dir = cwd.join("src/bin");
@@ -137,24 +169,35 @@ async fn watch() -> Result<()> {
     let mut file_hash = BTreeMap::<String, _>::new();
 
     loop {
-        let pb = if let DebouncedEvent::Write(pb) = rx.recv()? {
-            let pb = if let Ok(pb) = pb.canonicalize() {
-                pb
-            } else {
-                continue;
-            };
-            if let Ok(r) = pb.strip_prefix(&src_dir) {
-                if r.extension() == Some("rs").map(AsRef::as_ref) {
-                    r.to_owned()
+        let rx = rx.clone();
+        let src_dir = src_dir.clone();
+        let pb = tokio::task::spawn_blocking(move || -> Option<PathBuf> {
+            if let DebouncedEvent::Write(pb) = rx.lock().unwrap().recv().unwrap() {
+                let pb = if let Ok(pb) = pb.canonicalize() {
+                    pb
                 } else {
-                    continue;
+                    return None;
+                };
+                if let Ok(r) = pb.strip_prefix(&src_dir) {
+                    if r.extension() == Some("rs").map(AsRef::as_ref) {
+                        return Some(r.to_owned());
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
                 }
             } else {
-                continue;
+                return None;
             }
-        } else {
+        })
+        .await?;
+
+        if pb.is_none() {
             continue;
-        };
+        }
+
+        let pb = pb.unwrap();
 
         let problem_id = pb.file_stem().unwrap().to_string_lossy().into_owned();
 
@@ -237,10 +280,6 @@ async fn watch() -> Result<()> {
         atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
             .await?;
     }
-}
-
-fn submit_status(client: &reqwest::Client) -> Result<()> {
-    unimplemented!()
 }
 
 #[derive(StructOpt)]

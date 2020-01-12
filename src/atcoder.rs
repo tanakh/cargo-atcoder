@@ -169,11 +169,8 @@ impl AtCoder {
     }
 
     pub async fn contest_info(&self, contest_id: &str) -> Result<ContestInfo> {
-        let doc = http_get(
-            &self.client,
-            &format!("{}/contests/{}/tasks", ATCODER_ENDPOINT, contest_id),
-        )
-        .await?;
+        let t = format!("{}/contests/{}/tasks", ATCODER_ENDPOINT, contest_id);
+        let doc = http_get(&self.client, &t).await?;
 
         let doc = Html::parse_document(&doc);
         let sel_problem = Selector::parse("table tbody tr").unwrap();
@@ -225,12 +222,9 @@ impl AtCoder {
     }
 
     pub async fn test_cases(&self, problem_url: &str) -> Result<Vec<TestCase>> {
-        let doc = http_get(
-            &self.client,
-            &format!("{}{}", ATCODER_ENDPOINT, problem_url),
-        )
-        .await?;
-        // eprintln!("{}", doc);
+        let t = format!("{}{}", ATCODER_ENDPOINT, problem_url);
+        let doc = http_get(&self.client, &t).await?;
+
         let doc = Html::parse_document(&doc);
 
         let mut inputs = vec![];
@@ -257,14 +251,12 @@ impl AtCoder {
         assert_eq!(inputs.len(), outputs.len());
 
         let mut ret = vec![];
-
         for i in 0..inputs.len() {
             ret.push(TestCase {
                 input: inputs[i].clone(),
                 output: outputs[i].clone(),
             });
         }
-
         Ok(ret)
     }
 
@@ -274,83 +266,86 @@ impl AtCoder {
         problem_id: &str,
         source_code: &str,
     ) -> Result<()> {
-        let doc = http_get(
-            &self.client,
-            &format!("{}/contests/{}/submit", ATCODER_ENDPOINT, contest_id),
-        )
-        .await?;
-        let doc = Html::parse_document(&doc);
+        let t = format!("{}/contests/{}/submit", ATCODER_ENDPOINT, contest_id);
+        let doc = http_get(&self.client, &t).await?;
 
-        let task_screen_name = (|| {
-            for r in
-                doc.select(&Selector::parse("select[name=\"data.TaskScreenName\"] option").unwrap())
-            {
-                if r.inner_html()
-                    .trim()
-                    .split_whitespace()
-                    .next()
-                    .unwrap()
-                    .to_lowercase()
-                    .starts_with(&problem_id.to_lowercase())
-                {
-                    return Ok(r.value().attr("value").unwrap());
+        let (task_screen_name, language_id, language_name, csrf_token) = {
+            let doc = Html::parse_document(&doc);
+
+            let task_screen_name = (|| {
+                for r in doc.select(
+                    &Selector::parse("select[name=\"data.TaskScreenName\"] option").unwrap(),
+                ) {
+                    if r.inner_html()
+                        .trim()
+                        .split_whitespace()
+                        .next()
+                        .unwrap()
+                        .to_lowercase()
+                        .starts_with(&problem_id.to_lowercase())
+                    {
+                        return Ok(r.value().attr("value").unwrap());
+                    }
                 }
-            }
-            Err(anyhow!("Problem not found: {}", problem_id))
-        })()?;
+                Err(anyhow!("Problem not found: {}", problem_id))
+            })()?;
 
-        dbg!(&task_screen_name);
+            dbg!(&task_screen_name);
 
-        let (language_id, language_name) = (|| {
-            for r in doc.select(
-                &Selector::parse(&format!(
-                    "div[id=\"select-lang-{}\"] select option",
-                    &task_screen_name
+            let (language_id, language_name) = (|| {
+                for r in doc.select(
+                    &Selector::parse(&format!(
+                        "div[id=\"select-lang-{}\"] select option",
+                        &task_screen_name
+                    ))
+                    .unwrap(),
+                ) {
+                    if r.inner_html()
+                        .trim()
+                        .split_whitespace()
+                        .next()
+                        .unwrap()
+                        .to_lowercase()
+                        .starts_with("rust")
+                    {
+                        return Ok((r.value().attr("value").unwrap(), r.inner_html()));
+                    }
+                }
+                Err(anyhow!(
+                    "Rust seems to be not available in problem {}...",
+                    problem_id
                 ))
-                .unwrap(),
-            ) {
-                if r.inner_html()
-                    .trim()
-                    .split_whitespace()
-                    .next()
-                    .unwrap()
-                    .to_lowercase()
-                    .starts_with("rust")
-                {
-                    return Ok((r.value().attr("value").unwrap(), r.inner_html()));
-                }
-            }
-            Err(anyhow!(
-                "Rust seems to be not available in problem {}...",
-                problem_id
-            ))
-        })()?;
+            })()?;
 
-        let csrf_token = doc
-            .select(&Selector::parse("input[name=\"csrf_token\"]").unwrap())
-            .next()
-            .unwrap()
-            .value()
-            .attr("value")
-            .unwrap();
+            let csrf_token = doc
+                .select(&Selector::parse("input[name=\"csrf_token\"]").unwrap())
+                .next()
+                .unwrap()
+                .value()
+                .attr("value")
+                .unwrap();
 
-        // dbg!(language_id, language_name, csrf_token);
+            (
+                task_screen_name.to_owned(),
+                language_id.to_owned(),
+                language_name.to_owned(),
+                csrf_token.to_owned(),
+            )
+        };
 
         println!(
             "Submit to problem={}, using language={}",
             task_screen_name, language_name
         );
 
+        let t = format!("{}/contests/{}/submit", ATCODER_ENDPOINT, contest_id);
         let _res = self
             .client
-            .post(&format!(
-                "{}/contests/{}/submit",
-                ATCODER_ENDPOINT, contest_id
-            ))
+            .post(&t)
             .form(&[
                 ("data.TaskScreenName", task_screen_name),
                 ("data.LanguageId", language_id),
-                ("sourceCode", source_code),
+                ("sourceCode", source_code.to_owned()),
                 ("csrf_token", csrf_token),
             ])
             .send()

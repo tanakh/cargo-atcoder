@@ -11,6 +11,7 @@ anyhow = "1.0"
 cargo_toml = "0.8"
 dialoguer = "0.5"
 dirs = "2.0"
+futures = "0.3"
 notify = "4.0"
 reqwest = { version = "0.10", features = ["cookies"] }
 scraper = "0.11"
@@ -19,5 +20,5 @@ serde_derive = "1.0"
 serde_json = "1.0"
 sha2 = "0.8"
 structopt = "0.3"
-tokio = { version = "0.2", features = ["macros"] }
+tokio = { version = "0.2", features = ["macros", "time"] }
 toml = "0.5"
