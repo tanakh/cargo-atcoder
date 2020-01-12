@@ -1,0 +1,200 @@
+
+
+
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Sign In - AtCoder</title>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta http-equiv="Content-Language" content="en">
+	<meta name="viewport" content="width=device-width,initial-scale=1.0">
+	<meta name="format-detection" content="telephone=no">
+	<meta name="google-site-verification" content="nXGC_JxO0yoP1qBzMnYD_xgufO6leSLw1kyNo2HZltM" />
+
+	
+	<meta name="description" content="AtCoder is a programming contest site for anyone from beginners to experts. We hold weekly programming contests online.">
+	<meta name="author" content="AtCoder Inc.">
+
+	<meta property="og:site_name" content="AtCoder">
+	
+	<meta property="og:title" content="Sign In - AtCoder" />
+	<meta property="og:description" content="AtCoder is a programming contest site for anyone from beginners to experts. We hold weekly programming contests online." />
+	<meta property="og:type" content="website" />
+	<meta property="og:url" content="https://atcoder.jp/login?continue=https%3A%2F%2Fatcoder.jp%2Fcontests%2Fabc123%2Fstandings%2Fjson" />
+	<meta property="og:image" content="https://img.atcoder.jp/assets/atcoder.png" />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:site" content="@atcoder" />
+	
+	<meta property="twitter:title" content="Sign In - AtCoder" />
+
+	<link href="//fonts.googleapis.com/css?family=Lato:400,700" rel="stylesheet" type="text/css">
+	<link rel="stylesheet" type="text/css" href="/public/css/bootstrap.min.css?v=202001082219">
+	<link rel="stylesheet" type="text/css" href="/public/css/base.css?v=202001082219">
+	<link rel="shortcut icon" type="image/png" href="//img.atcoder.jp/assets/favicon.png">
+	<link rel="apple-touch-icon" href="//img.atcoder.jp/assets/atcoder.png">
+	<script src="/public/js/lib/jquery-1.9.1.min.js?v=202001082219"></script>
+	<script src="/public/js/lib/bootstrap.min.js?v=202001082219"></script>
+	<script src="//cdnjs.cloudflare.com/ajax/libs/js-cookie/2.1.4/js.cookie.min.js"></script>
+	<script src="//cdnjs.cloudflare.com/ajax/libs/moment.js/2.18.1/moment.min.js"></script>
+	<script src="//cdnjs.cloudflare.com/ajax/libs/moment.js/2.18.1/locale/ja.js"></script>
+	<script>
+		var LANG = "en";
+		var userScreenName = "";
+		var csrfToken = "pqg/sjc8jiBhjuPT4Q6FSora2XVZK2E0Xca6dm2lfTU="
+	</script>
+	<script src="/public/js/utils.js?v=202001082219"></script>
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	<script src="/public/js/base.js?v=202001082219"></script>
+	<script src="/public/js/ga.js?v=202001082219"></script>
+</head>
+
+<body>
+
+<div id="main-div" class="float-container">
+
+
+	<nav class="navbar navbar-inverse navbar-fixed-top">
+		<div class="container-fluid">
+			<div class="navbar-header">
+				<button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse" aria-expanded="false">
+					<span class="icon-bar"></span><span class="icon-bar"></span><span class="icon-bar"></span>
+				</button>
+				<a class="navbar-brand" href="/"></a>
+			</div>
+			<div class="collapse navbar-collapse" id="navbar-collapse">
+				<ul class="nav navbar-nav">
+				
+					<li><a href="/home">Home</a></li>
+					<li><a href="/contests/">Contest</a></li>
+					<li><a href="/ranking">Ranking</a></li>
+				
+				</ul>
+				<ul class="nav navbar-nav navbar-right">
+					
+					<li class="dropdown">
+						<a class="dropdown-toggle" data-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false">
+							<img src='//img.atcoder.jp/assets/top/img/flag-lang/en.png'> English <span class="caret"></span>
+						</a>
+						<ul class="dropdown-menu">
+							<li><a href="/login?continue=https%3A%2F%2Fatcoder.jp%2Fcontests%2Fabc123%2Fstandings%2Fjson&amp;lang=ja"><img src='//img.atcoder.jp/assets/top/img/flag-lang/ja.png'> 日本語</a></li>
+							<li><a href="/login?continue=https%3A%2F%2Fatcoder.jp%2Fcontests%2Fabc123%2Fstandings%2Fjson&amp;lang=en"><img src='//img.atcoder.jp/assets/top/img/flag-lang/en.png'> English</a></li>
+						</ul>
+					</li>
+					
+					
+						<li><a href="/register?continue=https%3A%2F%2Fatcoder.jp%2Fcontests%2Fabc123%2Fstandings%2Fjson">Sign Up</a></li>
+						<li><a href="/login?continue=https%3A%2F%2Fatcoder.jp%2Fcontests%2Fabc123%2Fstandings%2Fjson">Sign In</a></li>
+					
+				</ul>
+			</div>
+		</div>
+	</nav>
+
+	<form method="POST" name="form_logout" action="/logout?continue=https%3A%2F%2Fatcoder.jp%2Fcontests%2Fabc123%2Fstandings%2Fjson">
+		<input type="hidden" name="csrf_token" value="pqg/sjc8jiBhjuPT4Q6FSora2XVZK2E0Xca6dm2lfTU=" />
+	</form>
+	<div id="main-container" class="container"
+		 	style="">
+		
+
+<div class="row">
+	<div class="col-sm-12">
+		<h2>Sign In</h2>
+		<hr>
+		<form class="form-horizontal" action='' method="POST">
+			
+			<div class="form-group ">
+				<label class="control-label col-sm-2" for='username'>Username</label>
+				<div class="col-sm-3">
+					<input type="text" class='form-control' id='username'
+						   name='username' value='' required/>
+					<span class="error"></span>
+				</div>
+			</div>
+			
+			
+			<div class="form-group ">
+				<label class="control-label col-sm-2" for="password">Password</label>
+				<div class="col-sm-4">
+					<input type="password" class="form-control" id="password"
+						   name="password" required/>
+					<span class="error"></span>
+				</div>
+			</div>
+			
+			<input type="hidden" name="csrf_token" value="pqg/sjc8jiBhjuPT4Q6FSora2XVZK2E0Xca6dm2lfTU=" />
+			<div class="form-group">
+				<div class="col-sm-8 col-sm-offset-2">
+					<button type="submit" class="btn btn-primary" id="submit">Sign In</button>
+					or
+					<a class="btn btn-default" href="/register?continue=https%3A%2F%2Fatcoder.jp%2Fcontests%2Fabc123%2Fstandings%2Fjson">Sign Up</a>
+				</div>
+			</div>
+		</form>
+		<hr>
+		<p><a href="/remind_username">Forgot your username?</a></p>
+		<p><a href="/reset_password">Forgot your password?</a></p>
+	</div>
+</div>
+
+
+
+
+		
+			<hr>
+			
+			
+			
+<div class="a2a_kit a2a_kit_size_20 a2a_default_style pull-right" data-a2a-url="https://atcoder.jp/login?continue=https%3A%2F%2Fatcoder.jp%2Fcontests%2Fabc123%2Fstandings%2Fjson&amp;lang=en" data-a2a-title="Sign In - AtCoder">
+	<a class="a2a_button_facebook"></a>
+	<a class="a2a_button_twitter"></a>
+	
+		<a class="a2a_button_telegram"></a>
+	
+	<a class="a2a_dd" href="https://www.addtoany.com/share"></a>
+</div>
+
+		
+		<script async src="//static.addtoany.com/menu/page.js"></script>
+		
+	</div> 
+	<hr>
+</div> 
+
+	<div class="container" style="margin-bottom: 80px;">
+			<footer class="footer">
+			
+			<ul>
+				<li><a href="/tos">Terms of service</a></li>
+				<li><a href="/privacy">Privacy Policy</a></li>
+				<li><a href="/personal">Information Protection Policy</a></li>
+				<li><a href="/company">Company</a></li>
+				<li><a href="/faq">FAQ</a></li>
+				<li><a href="/contact">Contact</a></li>
+				
+			</ul>
+			<div class="text-center">
+					<small id="copyright">Copyright Since 2012 &copy;<a href="http://atcoder.co.jp">AtCoder Inc.</a> All rights reserved.</small>
+			</div>
+			</footer>
+	</div>
+	<p id="fixed-server-timer" ></p>
+	<div id="scroll-page-top" style="display:none;"><span class="glyphicon glyphicon-arrow-up" aria-hidden="true"></span> Page Top</div>
+
+</body>
+</html>
+
