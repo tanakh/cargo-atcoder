@@ -1,10 +1,89 @@
 use anyhow::{anyhow, Result};
 use scraper::{Html, Selector};
+use serde_derive::Deserialize;
+use std::collections::BTreeMap;
 
 const ATCODER_ENDPOINT: &str = "https://atcoder.jp";
 
 pub struct AtCoder {
     client: reqwest::Client,
+}
+
+#[derive(Debug)]
+pub struct ContestInfo {
+    problems: Vec<Problem>,
+}
+
+#[derive(Debug)]
+pub struct Problem {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub tle: String,
+    pub mle: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TestCase {
+    pub input: String,
+    pub output: String,
+}
+
+impl ContestInfo {
+    pub fn problem(&self, id: &str) -> Option<&Problem> {
+        self.problems
+            .iter()
+            .find(|p| p.id.to_lowercase() == id.to_lowercase())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubmissionResults {
+    #[serde(rename = "Result")]
+    pub result: BTreeMap<String, SubmissionResult>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubmissionResult {
+    #[serde(rename = "Html")]
+    html: String,
+    #[serde(rename = "Score")]
+    score: String,
+}
+
+#[derive(Debug)]
+pub struct ResultStatus {
+    pub status: String,
+    pub time: Option<String>,
+    pub mem: Option<String>,
+}
+
+enum ResultType {
+    Waiting(String),
+    Progress(String),
+    Done(String),
+}
+
+impl SubmissionResult {
+    pub fn status(&self) -> ResultStatus {
+        let doc = Html::parse_fragment(&format!("<table><tr>{}</tr></table>", self.html));
+
+        let status = doc
+            .select(&Selector::parse("td span").unwrap())
+            .next()
+            .unwrap()
+            .inner_html()
+            .trim()
+            .to_owned();
+
+        let sel = Selector::parse("td").unwrap();
+        let mut it = doc.select(&sel);
+        let _ = it.next();
+        let time = it.next().map(|r| r.inner_html().trim().to_owned());
+        let mem = it.next().map(|r| r.inner_html().trim().to_owned());
+
+        ResultStatus { status, time, mem }
+    }
 }
 
 async fn http_get(client: &reqwest::Client, url: &str) -> Result<String> {
@@ -282,32 +361,17 @@ impl AtCoder {
 
         Ok(())
     }
-}
 
-#[derive(Debug)]
-pub struct ContestInfo {
-    problems: Vec<Problem>,
-}
+    pub async fn submission_status(&self, contest_id: &str) -> Result<SubmissionResults> {
+        let con = http_get(
+            &self.client,
+            &format!(
+                "{}/contests/{}/submissions/me/status/json",
+                ATCODER_ENDPOINT, contest_id
+            ),
+        )
+        .await?;
 
-#[derive(Debug)]
-pub struct Problem {
-    pub id: String,
-    pub name: String,
-    pub url: String,
-    pub tle: String,
-    pub mle: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct TestCase {
-    pub input: String,
-    pub output: String,
-}
-
-impl ContestInfo {
-    pub fn problem(&self, id: &str) -> Option<&Problem> {
-        self.problems
-            .iter()
-            .find(|p| p.id.to_lowercase() == id.to_lowercase())
+        Ok(serde_json::from_str(&con)?)
     }
 }

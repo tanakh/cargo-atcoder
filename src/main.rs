@@ -104,10 +104,11 @@ async fn watch() -> Result<()> {
     atc.login(&conf.atcoder_username, &conf.atcoder_password)
         .await?;
 
-    // TODO: get contest id from Cargo.toml
-    let contest_id = "abc123";
+    let manifest = cargo_toml::Manifest::from_path("Cargo.toml")?;
+    let package = manifest.package.unwrap();
+    let contest_id = package.name;
 
-    let contest_info = atc.contest_info(contest_id).await?;
+    let contest_info = atc.contest_info(&contest_id).await?;
 
     // dbg!(&contest_info);
 
@@ -115,6 +116,15 @@ async fn watch() -> Result<()> {
 
     // let test_cases = atc.test_cases(&contest_info.problems[0].url).await?;
     // dbg!(&test_cases);
+
+    // let subms = atc.submission_status(&contest_id).await?;
+
+    // for (id, r) in subms.result.iter() {
+    //     let status = r.status();
+    //     dbg!(&status);
+    // }
+
+    // unimplemented!();
 
     let (tx, rx) = channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(150))?;
@@ -224,8 +234,8 @@ async fn watch() -> Result<()> {
         }
 
         println!("Sample passed.");
-        // atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
-        //     .await?;
+        atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
+            .await?;
     }
 }
 
@@ -235,6 +245,12 @@ fn submit_status(client: &reqwest::Client) -> Result<()> {
 
 #[derive(StructOpt)]
 enum Opt {
+    #[structopt(name = "atcoder")]
+    AtCoder(OptAtCoder),
+}
+
+#[derive(StructOpt)]
+enum OptAtCoder {
     New(NewOpt),
     Login,
     Logout,
@@ -245,10 +261,14 @@ enum Opt {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    match Opt::from_args() {
-        Opt::New(opt) => new_project(opt),
-        Opt::Login => login().await,
-        Opt::Watch => watch().await,
+    dbg!(&std::env::args());
+
+    let Opt::AtCoder(opt) = Opt::from_args();
+
+    match opt {
+        OptAtCoder::New(opt) => new_project(opt),
+        OptAtCoder::Login => login().await,
+        OptAtCoder::Watch => watch().await,
         _ => unimplemented!(),
     }
 }
