@@ -129,7 +129,7 @@ async fn test(opt: TestOpt) -> Result<()> {
     let contest_info = atc.contest_info(&contest_id).await?;
 
     let problem = contest_info.problem(&problem_id).ok_or(anyhow!(
-        "Problem {} is not contained in this contest",
+        "Problem `{}` is not contained in this contest",
         &problem_id
     ))?;
 
@@ -311,18 +311,6 @@ async fn watch() -> Result<()> {
     let package = manifest.package.unwrap();
     let contest_id = package.name;
 
-    // dbg!(&contest_info);
-
-    // let test_cases = atc.test_cases(&contest_info.problems[0].url).await?;
-    // dbg!(&test_cases);
-
-    // let subms = atc.submission_status(&contest_id).await?;
-
-    // for (id, r) in subms.result.iter() {
-    //     let status = r.status();
-    //     dbg!(&status);
-    // }
-
     let atc = Arc::new(atc);
 
     let submission_fut = {
@@ -337,49 +325,49 @@ async fn watch() -> Result<()> {
         tokio::spawn(async move { watch_filesystem(&atc, &contest_id).await })
     };
 
-    let ui_fut = {
-        tokio::spawn(async move {
-            for ev in io::stdin().events() {
-                let ev = ev?;
-                if ev == Event::Key(Key::Char('q')) || ev == Event::Key(Key::Ctrl('c')) {
-                    break;
-                }
-            }
+    // let ui_fut = {
+    //     tokio::spawn(async move {
+    //         for ev in io::stdin().events() {
+    //             let ev = ev?;
+    //             if ev == Event::Key(Key::Char('q')) || ev == Event::Key(Key::Ctrl('c')) {
+    //                 break;
+    //             }
+    //         }
 
-            let ret: Result<()> = Ok(());
-            ret
-        })
-    };
+    //         let ret: Result<()> = Ok(());
+    //         ret
+    //     })
+    // };
 
     select! {
         _ = submission_fut.fuse() => (),
         _ = file_watcher_fut.fuse() => (),
-        _ = ui_fut.fuse() => (),
+        // _ = ui_fut.fuse() => (),
     };
 
     Ok(())
 }
 
 async fn watch_submission_status(atc: &AtCoder, contest_id: &str) -> Result<()> {
-    let mut dat = BTreeMap::new();
+    // let mut dat = BTreeMap::new();
 
     loop {
-        let results = atc.submission_status(contest_id).await?;
-        for (id, r) in results.result.into_iter() {
-            let r = r.status();
+        // let results = atc.submission_status(contest_id).await?;
+        // for (id, r) in results.result.into_iter() {
+        //     let r = r.status();
 
-            if !dat.contains_key(&id) {
-                dat.insert(id, r);
-            }
+        //     if !dat.contains_key(&id) {
+        //         dat.insert(id, r);
+        //     }
 
-            // println!(
-            //     "{} [{}] {} {}",
-            //     id,
-            //     r.status,
-            //     r.time.unwrap_or("N/A".to_string()),
-            //     r.mem.unwrap_or("N/A".to_string()),
-            // );
-        }
+        //     // println!(
+        //     //     "{} [{}] {} {}",
+        //     //     id,
+        //     //     r.status,
+        //     //     r.time.unwrap_or("N/A".to_string()),
+        //     //     r.mem.unwrap_or("N/A".to_string()),
+        //     // );
+        // }
 
         delay_for(Duration::from_secs(3)).await;
     }
@@ -427,7 +415,6 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
         if pb.is_none() {
             continue;
         }
-
         let pb = pb.unwrap();
 
         let problem_id = pb.file_stem().unwrap().to_string_lossy().into_owned();
@@ -435,7 +422,7 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
         let problem = if let Some(problem) = contest_info.problem(&problem_id) {
             problem
         } else {
-            eprintln!("Problem {} is not contained in this contest", &problem_id);
+            eprintln!("Problem `{}` is not contained in this contest", &problem_id);
             continue;
         };
 
@@ -449,61 +436,10 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
 
         file_hash.insert(problem_id.clone(), hash);
 
-        let build_status = Command::new("cargo")
-            .arg("build")
-            .arg("--bin")
-            .arg(&problem_id)
-            .status()?;
-
-        if !build_status.success() {
-            println!("Build failed");
-            continue;
-        }
-
         let test_cases = atc.test_cases(&problem.url).await?;
-        let test_case_num = test_cases.len();
-        let mut ok = 0;
+        let test_passed = test_samples(&problem_id, &test_cases)?;
 
-        for (i, test_case) in test_cases.into_iter().enumerate() {
-            let mut child = Command::new("cargo")
-                .arg("run")
-                .arg("-q")
-                .arg("--bin")
-                .arg(&problem_id)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()?;
-
-            child
-                .stdin
-                .as_mut()
-                .unwrap()
-                .write_all(test_case.input.as_bytes())?;
-
-            let output = child.wait_with_output()?;
-            if !output.status.success() {
-                println!(
-                    "Failed to run: status code = {}",
-                    output.status.code().unwrap_or_default()
-                );
-                continue;
-            }
-
-            let stdout = String::from_utf8_lossy(&output.stdout);
-
-            if stdout.trim() != test_case.output.trim() {
-                println!("Test case {} failed:", i + 1);
-                println!("Input: {}", &test_case.input);
-                println!("Expected: {}", &test_case.output);
-                println!("Got: {}", &stdout);
-                println!();
-                continue;
-            }
-
-            ok += 1;
-        }
-
-        if ok != test_case_num {
+        if !test_passed {
             continue;
         }
 
