@@ -290,8 +290,6 @@ impl AtCoder {
                 Err(anyhow!("Problem not found: {}", problem_id))
             })()?;
 
-            dbg!(&task_screen_name);
-
             let (language_id, language_name) = (|| {
                 for r in doc.select(
                     &Selector::parse(&format!(
@@ -333,20 +331,15 @@ impl AtCoder {
             )
         };
 
-        println!(
-            "Submit to problem={}, using language={}",
-            task_screen_name, language_name
-        );
-
         let t = format!("{}/contests/{}/submit", ATCODER_ENDPOINT, contest_id);
         let _res = self
             .client
             .post(&t)
             .form(&[
-                ("data.TaskScreenName", task_screen_name),
-                ("data.LanguageId", language_id),
-                ("sourceCode", source_code.to_owned()),
-                ("csrf_token", csrf_token),
+                ("data.TaskScreenName", &task_screen_name),
+                ("data.LanguageId", &language_id),
+                ("sourceCode", &source_code.to_owned()),
+                ("csrf_token", &csrf_token),
             ])
             .send()
             .await?
@@ -354,18 +347,19 @@ impl AtCoder {
             .text()
             .await?;
 
+        println!(
+            "Submitted to problem `{}`, using language `{}`",
+            task_screen_name, language_name
+        );
         Ok(())
     }
 
     pub async fn submission_status(&self, contest_id: &str) -> Result<SubmissionResults> {
-        let con = http_get(
-            &self.client,
-            &format!(
-                "{}/contests/{}/submissions/me/status/json",
-                ATCODER_ENDPOINT, contest_id
-            ),
-        )
-        .await?;
+        let t = format!(
+            "{}/contests/{}/submissions/me/status/json",
+            ATCODER_ENDPOINT, contest_id
+        );
+        let con = http_get(&self.client, &t).await?;
 
         Ok(serde_json::from_str(&con)?)
     }

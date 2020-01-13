@@ -1,9 +1,11 @@
 use anyhow::{anyhow, Result};
-use futures::join;
+use futures::future::FutureExt;
+use futures::select;
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_derive::Deserialize;
 use sha2::digest::Digest;
 use std::collections::BTreeMap;
+use std::io;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::channel;
@@ -14,10 +16,13 @@ use std::{
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
+use termion::event::{Event, Key};
+use termion::input::TermRead;
+use tokio::time::delay_for;
 
 mod atcoder;
 
-use atcoder::AtCoder;
+use atcoder::*;
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -102,7 +107,200 @@ async fn login() -> Result<()> {
     Ok(())
 }
 
+#[derive(StructOpt)]
+struct TestOpt {
+    problem_id: String,
+    /// Specify case number to test
+    case_num: Option<usize>,
+    /// Submit if test passed
+    #[structopt(short, long)]
+    submit: bool,
+}
+
+async fn test(opt: TestOpt) -> Result<()> {
+    let conf = read_config()?;
+
+    let atc = AtCoder::new()?;
+    atc.login(&conf.atcoder_username, &conf.atcoder_password)
+        .await?;
+
+    let problem_id = opt.problem_id;
+    let contest_id = get_cur_contest_id()?;
+    let contest_info = atc.contest_info(&contest_id).await?;
+
+    let problem = contest_info.problem(&problem_id).ok_or(anyhow!(
+        "Problem {} is not contained in this contest",
+        &problem_id
+    ))?;
+
+    let test_cases = atc.test_cases(&problem.url).await?;
+
+    let res = test_samples(&problem_id, &test_cases)?;
+    if res {
+        if opt.submit {
+            let source = fs::read(format!("src/bin/{}.rs", problem_id))
+                .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
+
+            atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
+fn get_cur_contest_id() -> Result<String> {
+    let manifest = cargo_toml::Manifest::from_path("Cargo.toml")?;
+    let package = manifest.package.unwrap();
+    Ok(package.name)
+}
+
+fn test_samples(problem_id: &str, test_cases: &[TestCase]) -> Result<bool> {
+    use console::Style;
+
+    let build_status = Command::new("cargo")
+        .arg("build")
+        .arg("--bin")
+        .arg(&problem_id)
+        .status()?;
+
+    if !build_status.success() {
+        return Ok(false);
+    }
+
+    let test_case_num = test_cases.len();
+
+    println!("running {} tests", test_case_num);
+
+    let mut fails = vec![];
+    let green = Style::new().green();
+    let red = Style::new().red();
+    let cyan = Style::new().cyan();
+
+    for (i, test_case) in test_cases.iter().enumerate() {
+        let mut child = Command::new("cargo")
+            .arg("run")
+            .arg("-q")
+            .arg("--bin")
+            .arg(&problem_id)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(test_case.input.as_bytes())?;
+
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            println!("test sample {} ... {}", i + 1, red.apply_to("FAILED"));
+            fails.push((i, false, output));
+            continue;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        if stdout.trim() != test_case.output.trim() {
+            println!("test sample {} ... {}", i + 1, red.apply_to("FAILED"));
+            fails.push((i, true, output));
+        } else {
+            println!("test sample {} ... {}", i + 1, green.apply_to("ok"));
+        }
+    }
+    println!();
+
+    let fail_num = fails.len();
+
+    if fail_num == 0 {
+        println!("test_result: {}", green.apply_to("ok"));
+        println!();
+        return Ok(true);
+    }
+
+    for (case_no, exec_success, output) in fails {
+        println!("---- sample {} ----", case_no + 1);
+
+        if !exec_success {
+            println!(
+                "{}: exit code: {}",
+                red.apply_to("runtime error"),
+                output.status.code().unwrap_or_default(),
+            );
+            println!();
+
+            if output.stdout.len() > 0 {
+                println!("stdout:");
+                print_lines(&String::from_utf8_lossy(&output.stdout));
+                println!();
+            }
+
+            if output.stderr.len() > 0 {
+                println!("stderr:");
+                print_lines(&String::from_utf8_lossy(&output.stderr));
+                println!();
+            }
+        } else {
+            println!("{}:", cyan.apply_to("input"));
+            print_lines(&test_cases[case_no].input);
+            println!();
+
+            println!("{}:", green.apply_to("expected output"));
+            print_lines(&test_cases[case_no].output);
+            println!();
+
+            println!("{}:", red.apply_to("your output"));
+            print_lines(&String::from_utf8_lossy(&output.stdout));
+            println!();
+
+            if output.stderr.len() > 0 {
+                println!("stderr:");
+                print_lines(&String::from_utf8_lossy(&output.stderr));
+                println!();
+            }
+        }
+    }
+
+    println!(
+        "test result: {}. {} passed; {} failed",
+        red.apply_to("FAILED"),
+        test_case_num - fail_num,
+        fail_num
+    );
+    println!();
+
+    Ok(false)
+}
+
+fn print_lines(s: &str) {
+    for (i, line) in s.lines().enumerate() {
+        println!("{:6} | {}", i + 1, line);
+    }
+}
+
+// use termion::raw::IntoRawMode;
+// use tui::backend::TermionBackend;
+// use tui::layout::{Constraint, Direction, Layout};
+// use tui::style::{Color, Modifier, Style};
+// use tui::widgets::{Block, Borders, Widget};
+// use tui::Terminal;
+
 async fn watch() -> Result<()> {
+    // let stdout = io::stdout().into_raw_mode()?;
+    // let backend = TermionBackend::new(stdout);
+    // let mut terminal = Terminal::new(backend)?;
+    // terminal.clear();
+
+    // terminal.draw(|mut f| {
+    //     let size = f.size();
+    //     Block::default()
+    //         .title("Block")
+    //         .borders(Borders::ALL)
+    //         .render(&mut f, size);
+    // })?;
+
     let conf = read_config()?;
 
     let atc = AtCoder::new()?;
@@ -130,31 +328,64 @@ async fn watch() -> Result<()> {
     let submission_fut = {
         let atc = atc.clone();
         let contest_id = contest_id.clone();
-        tokio::spawn(async move { watch_submission_status(atc, &contest_id).await })
+        tokio::spawn(async move { watch_submission_status(&atc, &contest_id).await })
     };
 
     let file_watcher_fut = {
         let atc = atc.clone();
         let contest_id = contest_id.clone();
+        tokio::spawn(async move { watch_filesystem(&atc, &contest_id).await })
+    };
+
+    let ui_fut = {
         tokio::spawn(async move {
-            watch_filesystem(atc, &contest_id).await;
+            for ev in io::stdin().events() {
+                let ev = ev?;
+                if ev == Event::Key(Key::Char('q')) || ev == Event::Key(Key::Ctrl('c')) {
+                    break;
+                }
+            }
+
+            let ret: Result<()> = Ok(());
+            ret
         })
     };
 
-    // submission_fut.await?;
-    // file_watcher_fut.await?;
+    select! {
+        _ = submission_fut.fuse() => (),
+        _ = file_watcher_fut.fuse() => (),
+        _ = ui_fut.fuse() => (),
+    };
 
-    let _r = join!(submission_fut, file_watcher_fut);
     Ok(())
 }
 
-async fn watch_submission_status(atc: Arc<AtCoder>, contest_id: &str) -> Result<()> {
+async fn watch_submission_status(atc: &AtCoder, contest_id: &str) -> Result<()> {
+    let mut dat = BTreeMap::new();
+
     loop {
-        tokio::time::delay_for(Duration::from_secs(3)).await;
+        let results = atc.submission_status(contest_id).await?;
+        for (id, r) in results.result.into_iter() {
+            let r = r.status();
+
+            if !dat.contains_key(&id) {
+                dat.insert(id, r);
+            }
+
+            // println!(
+            //     "{} [{}] {} {}",
+            //     id,
+            //     r.status,
+            //     r.time.unwrap_or("N/A".to_string()),
+            //     r.mem.unwrap_or("N/A".to_string()),
+            // );
+        }
+
+        delay_for(Duration::from_secs(3)).await;
     }
 }
 
-async fn watch_filesystem(atc: Arc<AtCoder>, contest_id: &str) -> Result<()> {
+async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
     let contest_info = atc.contest_info(&contest_id).await?;
 
     let (tx, rx) = channel();
@@ -294,20 +525,21 @@ enum OptAtCoder {
     Login,
     Logout,
     Submit,
-    Test,
+    Test(TestOpt),
     Watch,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dbg!(&std::env::args());
-
     let Opt::AtCoder(opt) = Opt::from_args();
 
+    use OptAtCoder::*;
     match opt {
-        OptAtCoder::New(opt) => new_project(opt),
-        OptAtCoder::Login => login().await,
-        OptAtCoder::Watch => watch().await,
-        _ => unimplemented!(),
+        New(opt) => new_project(opt),
+        Login => login().await,
+        Logout => unimplemented!(),
+        Test(opt) => test(opt).await,
+        Submit => unimplemented!(),
+        Watch => watch().await,
     }
 }

@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0"
 cargo_toml = "0.8"
+console = "0.9"
 dialoguer = "0.5"
 dirs = "2.0"
 futures = "0.3"
@@ -22,3 +23,5 @@ sha2 = "0.8"
 structopt = "0.3"
 tokio = { version = "0.2", features = ["macros", "time"] }
 toml = "0.5"
+tui = "0.8"
+termion = "1.5"
