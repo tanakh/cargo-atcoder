@@ -2,11 +2,15 @@ use anyhow::{anyhow, Result};
 use scraper::{Html, Selector};
 use serde_derive::Deserialize;
 use std::collections::BTreeMap;
+use std::fs;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 
 const ATCODER_ENDPOINT: &str = "https://atcoder.jp";
 
 pub struct AtCoder {
     client: reqwest::Client,
+    session_file: PathBuf,
 }
 
 #[derive(Debug)]
@@ -96,11 +100,63 @@ async fn http_get(client: &reqwest::Client, url: &str) -> Result<String> {
         .await?)
 }
 
+impl Drop for AtCoder {
+    fn drop(&mut self) {
+        let v = self.client.cookie_store_json().unwrap();
+        let dir = self.session_file.parent().unwrap();
+        fs::create_dir_all(dir).unwrap();
+        fs::write(&self.session_file, v).unwrap();
+    }
+}
+
 impl AtCoder {
-    pub fn new() -> Result<AtCoder> {
+    pub fn new(session_file: &Path) -> Result<AtCoder> {
+        let cb = reqwest::Client::builder().cookie_store(true);
+
+        let cb = match fs::read(session_file) {
+            Ok(v) => cb.set_cookie_store(v),
+            Err(err) => {
+                if err.kind() == ErrorKind::NotFound {
+                    cb
+                } else {
+                    Err(err)?
+                }
+            }
+        };
+
         Ok(AtCoder {
-            client: reqwest::Client::builder().cookie_store(true).build()?,
+            client: cb.build()?,
+            session_file: session_file.to_owned(),
         })
+    }
+
+    // pub fn save_session(&self) -> Vec<u8> {
+    //     self.client.cookie_store_json().unwrap()
+    // }
+
+    // pub fn load_session(session: Vec<u8>) -> Result<AtCoder> {
+    //     Ok(AtCoder {
+    //         client: reqwest::Client::builder()
+    //             .set_cookie_store(session)
+    //             .build()?,
+    //     })
+    // }
+
+    pub async fn username(&self) -> Result<Option<String>> {
+        let doc = http_get(&self.client, ATCODER_ENDPOINT).await?;
+        let doc = Html::parse_document(&doc);
+
+        let r = doc
+            .select(&Selector::parse("li a[href^=\"/users/\"]").unwrap())
+            .next();
+
+        if r.is_none() {
+            return Ok(None);
+        }
+
+        Ok(Some(
+            r.unwrap().value().attr("href").unwrap()[7..].to_owned(),
+        ))
     }
 
     pub async fn login(&self, username: &str, password: &str) -> Result<()> {

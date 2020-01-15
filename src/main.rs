@@ -5,7 +5,6 @@ use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_derive::Deserialize;
 use sha2::digest::Digest;
 use std::collections::BTreeMap;
-use std::io;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::channel;
@@ -16,8 +15,8 @@ use std::{
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
-use termion::event::{Event, Key};
-use termion::input::TermRead;
+// use termion::event::{Event, Key};
+// use termion::input::TermRead;
 use tokio::time::delay_for;
 
 mod atcoder;
@@ -28,9 +27,6 @@ use atcoder::*;
 struct Config {
     template: String,
     rustc_version: String,
-
-    atcoder_username: String,
-    atcoder_password: String,
 }
 
 fn read_config() -> Result<Config> {
@@ -43,6 +39,12 @@ fn read_config() -> Result<Config> {
 
     // dbg!(&config);
     Ok(config)
+}
+
+fn session_file() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap()
+        .join("cargo-atcoder/session.json")
 }
 
 #[derive(StructOpt)]
@@ -100,10 +102,11 @@ async fn login() -> Result<()> {
         .with_prompt("Password")
         .interact()?;
 
-    let atc = AtCoder::new()?;
+    let atc = AtCoder::new(&session_file())?;
     atc.login(&username, &password).await?;
 
     println!("Login succeeded.");
+
     Ok(())
 }
 
@@ -120,9 +123,8 @@ struct TestOpt {
 async fn test(opt: TestOpt) -> Result<()> {
     let conf = read_config()?;
 
-    let atc = AtCoder::new()?;
-    atc.login(&conf.atcoder_username, &conf.atcoder_password)
-        .await?;
+    let atc = AtCoder::new(&session_file())?;
+    // FIXME: check logined
 
     let problem_id = opt.problem_id;
     let contest_id = get_cur_contest_id()?;
@@ -303,9 +305,9 @@ async fn watch() -> Result<()> {
 
     let conf = read_config()?;
 
-    let atc = AtCoder::new()?;
-    atc.login(&conf.atcoder_username, &conf.atcoder_password)
-        .await?;
+    let atc = AtCoder::new(&session_file())?;
+
+    // FIXME: check logined
 
     let manifest = cargo_toml::Manifest::from_path("Cargo.toml")?;
     let package = manifest.package.unwrap();
@@ -449,6 +451,18 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
     }
 }
 
+async fn status() -> Result<()> {
+    let atc = AtCoder::new(&session_file())?;
+
+    if let Some(username) = atc.username().await? {
+        println!("Logged in as {}.", username);
+    } else {
+        println!("Not logged in.");
+    }
+
+    Ok(())
+}
+
 #[derive(StructOpt)]
 enum Opt {
     #[structopt(name = "atcoder")]
@@ -460,8 +474,9 @@ enum OptAtCoder {
     New(NewOpt),
     Login,
     Logout,
-    Submit,
+    Status,
     Test(TestOpt),
+    Submit,
     Watch,
 }
 
@@ -474,6 +489,7 @@ async fn main() -> Result<()> {
         New(opt) => new_project(opt),
         Login => login().await,
         Logout => unimplemented!(),
+        Status => status().await,
         Test(opt) => test(opt).await,
         Submit => unimplemented!(),
         Watch => watch().await,
