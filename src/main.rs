@@ -1,22 +1,26 @@
 use anyhow::{anyhow, Result};
+use bytesize::ByteSize;
 use chrono::{DateTime, Local};
 use console::Style;
-use futures::future::FutureExt;
-use futures::{join, select};
+use futures::{future::FutureExt, join, select};
+use handlebars::Handlebars;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_derive::Deserialize;
 use sha2::digest::Digest;
-use std::io::Write;
-use std::process::{Command, Stdio};
-use std::sync::mpsc::channel;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use std::{
     cmp::min,
     collections::BTreeMap,
     fs,
+    io::Write,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::channel,
+        Arc, Mutex,
+    },
+    time::Duration,
 };
 use structopt::StructOpt;
 use tokio::time::delay_for;
@@ -25,6 +29,7 @@ use tokio::time::delay_for;
 // use termion::input::TermRead;
 
 mod atcoder;
+mod base64;
 
 use atcoder::*;
 
@@ -313,6 +318,10 @@ struct SubmitOpt {
     /// Skip test
     #[structopt(short, long)]
     skip_test: bool,
+
+    /// Submit via binary
+    #[structopt(short, long)]
+    bin: bool,
 }
 
 async fn submit(opt: SubmitOpt) -> Result<()> {
@@ -346,8 +355,66 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
         return Ok(());
     }
 
-    let source = fs::read(format!("src/bin/{}.rs", problem_id))
-        .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
+    let source = if !opt.bin {
+        fs::read(format!("src/bin/{}.rs", problem_id))
+            .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?
+    } else {
+        let source_code = fs::read_to_string(format!("src/bin/{}.rs", problem_id))
+            .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
+
+        let target = "x86_64-unknown-linux-musl";
+
+        let status = Command::new("cargo")
+            .arg("build")
+            .arg(format!("--target={}", target))
+            .arg("--release")
+            .arg("--bin")
+            .arg(&problem_id)
+            .status()?;
+
+        if !status.success() {
+            Err(anyhow!("Build failed"))?;
+        }
+
+        let binary_file = format!("target/{}/release/{}", target, problem_id);
+
+        let size = ByteSize::b(get_file_size(&binary_file)?);
+        println!("Built binary size: {}", size);
+
+        let status = Command::new("strip").arg("-s").arg(&binary_file).status()?;
+
+        let size = ByteSize::b(get_file_size(&binary_file)?);
+        println!("Stripped binary size: {}", size);
+
+        if !status.success() {
+            Err(anyhow!("strip failed"))?;
+        }
+
+        let mut handlebars = Handlebars::new();
+        handlebars.register_escape_fn(|s: &str| s.to_owned());
+
+        let templ = include_str!("../data/binary_runner.rs");
+        handlebars.register_template_string("binary_runner", templ)?;
+
+        let bin = fs::read(&binary_file)?;
+
+        let mut data = BTreeMap::new();
+        data.insert("BINARY", base64::encode(&bin));
+        data.insert("SOURCE_CODE", source_code);
+
+        let code = handlebars.render("binary_runner", &data)?.trim().to_owned();
+
+        let size = ByteSize::b(code.len() as u64);
+        println!("Bundled code size: {}", size);
+
+        let size_limit = ByteSize::kb(512);
+
+        if size > size_limit {
+            println!("Code size limit exceeded: larger than {}", size_limit);
+        }
+
+        code.bytes().collect::<Vec<u8>>()
+    };
 
     atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
         .await?;
@@ -356,6 +423,11 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     println!();
 
     Ok(())
+}
+
+fn get_file_size(path: impl AsRef<Path>) -> Result<u64> {
+    let meta = fs::metadata(path)?;
+    Ok(meta.len())
 }
 
 // use termion::raw::IntoRawMode;
@@ -505,8 +577,6 @@ async fn info() -> Result<()> {
 
     Ok(())
 }
-
-use std::sync::atomic::{AtomicBool, Ordering};
 
 async fn watch_submission_status(
     atc: Arc<AtCoder>,
