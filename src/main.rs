@@ -117,9 +117,10 @@ async fn login() -> Result<()> {
 
 #[derive(StructOpt)]
 struct TestOpt {
+    /// Problem ID (e.g. a, b, ...)
     problem_id: String,
     /// Specify case number to test
-    case_num: Option<usize>,
+    case_num: Vec<usize>,
     /// Submit if test passed
     #[structopt(short, long)]
     submit: bool,
@@ -140,8 +141,15 @@ async fn test(opt: TestOpt) -> Result<()> {
 
     let test_cases = atc.test_cases(&problem.url).await?;
 
-    let res = test_samples(&problem_id, &test_cases)?;
-    if res {
+    let mut tcs = vec![];
+    for (i, tc) in test_cases.into_iter().enumerate() {
+        if opt.case_num.len() == 0 || opt.case_num.contains(&(i + 1)) {
+            tcs.push((i, tc));
+        }
+    }
+
+    let passed = test_samples(&problem_id, &tcs)?;
+    if passed {
         if opt.submit {
             let source = fs::read(format!("src/bin/{}.rs", problem_id))
                 .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
@@ -160,7 +168,7 @@ fn get_cur_contest_id() -> Result<String> {
     Ok(package.name)
 }
 
-fn test_samples(problem_id: &str, test_cases: &[TestCase]) -> Result<bool> {
+fn test_samples(problem_id: &str, test_cases: &[(usize, TestCase)]) -> Result<bool> {
     let build_status = Command::new("cargo")
         .arg("build")
         .arg("--bin")
@@ -180,7 +188,7 @@ fn test_samples(problem_id: &str, test_cases: &[TestCase]) -> Result<bool> {
     let red = Style::new().red();
     let cyan = Style::new().cyan();
 
-    for (i, test_case) in test_cases.iter().enumerate() {
+    for &(i, ref test_case) in test_cases.iter() {
         let mut child = Command::new("cargo")
             .arg("run")
             .arg("-q")
@@ -247,11 +255,11 @@ fn test_samples(problem_id: &str, test_cases: &[TestCase]) -> Result<bool> {
             }
         } else {
             println!("{}:", cyan.apply_to("input"));
-            print_lines(&test_cases[case_no].input);
+            print_lines(&test_cases[case_no].1.input);
             println!();
 
             println!("{}:", green.apply_to("expected output"));
-            print_lines(&test_cases[case_no].output);
+            print_lines(&test_cases[case_no].1.output);
             println!();
 
             println!("{}:", red.apply_to("your output"));
@@ -407,6 +415,7 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
         file_hash.insert(problem_id.clone(), hash);
 
         let test_cases = atc.test_cases(&problem.url).await?;
+        let test_cases = test_cases.into_iter().enumerate().collect::<Vec<_>>();
         let test_passed = test_samples(&problem_id, &test_cases)?;
 
         if !test_passed {
