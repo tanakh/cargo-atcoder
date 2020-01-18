@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local};
 use console::Style;
 use futures::future::FutureExt;
-use futures::{join, pending, select};
+use futures::{join, select};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_derive::Deserialize;
@@ -126,8 +126,6 @@ struct TestOpt {
 }
 
 async fn test(opt: TestOpt) -> Result<()> {
-    let conf = read_config()?;
-
     let atc = AtCoder::new(&session_file())?;
     // FIXME: check logined
 
@@ -306,7 +304,7 @@ async fn watch() -> Result<()> {
     //         .render(&mut f, size);
     // })?;
 
-    let conf = read_config()?;
+    // let conf = read_config()?;
 
     let atc = AtCoder::new(&session_file())?;
 
@@ -441,8 +439,8 @@ async fn status() -> Result<()> {
     let join_fut = tokio::task::spawn_blocking({
         let m = m.clone();
         move || loop {
-            m.join();
-            std::thread::sleep_ms(50);
+            m.join().unwrap();
+            std::thread::sleep(Duration::from_millis(50));
         }
     });
 
@@ -508,6 +506,7 @@ async fn status() -> Result<()> {
                     }
 
                     StatusCode::Done(code) => {
+                        // TODO: show result breakdown on error
                         if pb.1 {
                             let msg = code.long_msg();
                             let mut stat = format!(

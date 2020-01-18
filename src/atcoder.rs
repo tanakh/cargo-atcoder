@@ -5,7 +5,6 @@ use scraper::{Html, Selector};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
 
 const ATCODER_ENDPOINT: &str = "https://atcoder.jp";
 
