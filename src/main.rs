@@ -115,6 +115,14 @@ async fn login() -> Result<()> {
     Ok(())
 }
 
+fn clear_session() -> Result<()> {
+    let path = session_file();
+    if path.is_file() {
+        fs::remove_file(&path)?;
+    }
+    Ok(())
+}
+
 #[derive(StructOpt)]
 struct TestOpt {
     /// Problem ID (e.g. a, b, ...)
@@ -128,7 +136,9 @@ struct TestOpt {
 
 async fn test(opt: TestOpt) -> Result<()> {
     let atc = AtCoder::new(&session_file())?;
-    // FIXME: check logined
+    atc.username()
+        .await?
+        .ok_or(anyhow!("You are not logged in. Please login first."))?;
 
     let problem_id = opt.problem_id;
     let contest_id = get_cur_contest_id()?;
@@ -291,6 +301,63 @@ fn print_lines(s: &str) {
     }
 }
 
+#[derive(StructOpt)]
+struct SubmitOpt {
+    /// Problem ID (e.g. a, b, ...)
+    problem_id: String,
+
+    /// Force submit even if test fails
+    #[structopt(short, long)]
+    force: bool,
+
+    /// Skip test
+    #[structopt(short, long)]
+    skip_test: bool,
+}
+
+async fn submit(opt: SubmitOpt) -> Result<()> {
+    let atc = AtCoder::new(&session_file())?;
+    atc.username()
+        .await?
+        .ok_or(anyhow!("You are not logged in. Please login first."))?;
+
+    let contest_id = get_cur_contest_id()?;
+    let problem_id = opt.problem_id;
+    let contest_info = atc.contest_info(&contest_id).await?;
+    let problem = contest_info.problem(&problem_id).ok_or(anyhow!(
+        "Problem `{}` is not contained in this contest",
+        &problem_id
+    ))?;
+
+    let test_passed = if opt.skip_test {
+        true
+    } else {
+        let test_cases = atc
+            .test_cases(&problem.url)
+            .await?
+            .into_iter()
+            .enumerate()
+            .collect::<Vec<_>>();
+        test_samples(&problem_id, &test_cases)?
+    };
+
+    if !test_passed && !opt.force {
+        println!("Sample test failed. Did not submit.");
+        return Ok(());
+    }
+
+    let source = fs::read(format!("src/bin/{}.rs", problem_id))
+        .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
+
+    atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
+        .await?;
+    println!();
+    watch_submission_status(Arc::new(atc), &contest_id, true).await?;
+    println!();
+
+    Ok(())
+}
+
 // use termion::raw::IntoRawMode;
 // use tui::backend::TermionBackend;
 // use tui::layout::{Constraint, Direction, Layout};
@@ -439,17 +506,27 @@ async fn info() -> Result<()> {
     Ok(())
 }
 
-async fn status() -> Result<()> {
-    let atc = AtCoder::new(&session_file())?;
-    let contest_id = get_cur_contest_id()?;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+async fn watch_submission_status(
+    atc: Arc<AtCoder>,
+    contest_id: &str,
+    recent_only: bool,
+) -> Result<()> {
+    let cur_time = chrono::offset::Utc::now();
+
+    let contest_id = contest_id.to_owned();
     let m = Arc::new(MultiProgress::new());
+    let complete = Arc::new(AtomicBool::new(false));
 
     let join_fut = tokio::task::spawn_blocking({
         let m = m.clone();
-        move || loop {
-            m.join().unwrap();
-            std::thread::sleep(Duration::from_millis(50));
+        let complete = Arc::clone(&complete);
+        move || {
+            while complete.load(Ordering::Relaxed) {
+                m.join().unwrap();
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
     });
 
@@ -468,8 +545,19 @@ async fn status() -> Result<()> {
         let red = Style::new().red();
 
         loop {
-            let mut results = atc.submission_status(&contest_id).await.unwrap();
+            let results = atc.submission_status(&contest_id).await.unwrap();
+            let mut results = if !recent_only {
+                results
+            } else {
+                results
+                    .into_iter()
+                    .filter(|r| (cur_time - r.date).num_seconds() <= 10 || !r.status.done())
+                    .collect::<Vec<_>>()
+            };
             results.sort_by_key(|r| r.date);
+
+            let mut done = true;
+
             for result in results {
                 let pb = dat.entry(result.id).or_insert_with(|| {
                     let pb = ProgressBar::new_spinner().with_style(spinner_style.clone());
@@ -484,6 +572,7 @@ async fn status() -> Result<()> {
 
                 match result.status {
                     StatusCode::Waiting(code) => {
+                        done = false;
                         pb.0.set_style(spinner_style.clone());
                         match code {
                             WaitingCode::WaitingForJudge => {
@@ -496,6 +585,7 @@ async fn status() -> Result<()> {
                     }
 
                     StatusCode::Progress(cur, total, code) => {
+                        done = false;
                         pb.0.set_style(bar_style.clone());
                         pb.0.set_length(total as _);
                         pb.0.set_position(cur as _);
@@ -547,6 +637,11 @@ async fn status() -> Result<()> {
                 }
             }
 
+            if done {
+                complete.store(true, Ordering::Relaxed);
+                break;
+            }
+
             let refresh_rate = 100;
 
             for _ in 0..3000 / refresh_rate {
@@ -564,6 +659,14 @@ async fn status() -> Result<()> {
     Ok(())
 }
 
+async fn status() -> Result<()> {
+    let atc = AtCoder::new(&session_file())?;
+    let contest_id = get_cur_contest_id()?;
+    let atc = Arc::new(atc);
+    watch_submission_status(atc, &contest_id, false).await?;
+    Ok(())
+}
+
 #[derive(StructOpt)]
 enum Opt {
     #[structopt(name = "atcoder")]
@@ -575,9 +678,10 @@ enum OptAtCoder {
     New(NewOpt),
     Login,
     Logout,
+    ClearSession,
     Info,
     Test(TestOpt),
-    Submit,
+    Submit(SubmitOpt),
     Watch,
     Status,
 }
@@ -591,9 +695,10 @@ async fn main() -> Result<()> {
         New(opt) => new_project(opt),
         Login => login().await,
         Logout => unimplemented!(),
+        ClearSession => clear_session(),
         Info => info().await,
         Test(opt) => test(opt).await,
-        Submit => unimplemented!(),
+        Submit(opt) => submit(opt).await,
         Watch => watch().await,
         Status => status().await,
     }

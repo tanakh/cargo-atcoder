@@ -74,6 +74,15 @@ pub enum StatusCode {
     Done(ResultCode),
 }
 
+impl StatusCode {
+    pub fn done(&self) -> bool {
+        match self {
+            StatusCode::Done(_) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum WaitingCode {
     WaitingForJudge,
