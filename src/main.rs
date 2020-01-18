@@ -675,14 +675,23 @@ enum Opt {
 
 #[derive(StructOpt)]
 enum OptAtCoder {
+    /// Create a new project for specified contest
     New(NewOpt),
+    /// Login to atcoder
     Login,
+    /// Logout from atcoder
     Logout,
+    /// Clear session data (cookie store in HTTP client)
     ClearSession,
+    /// Show session information
     Info,
+    /// Test sample cases
     Test(TestOpt),
+    /// Submit solution
     Submit(SubmitOpt),
+    /// [WIP] Watch filesystem for automatic submission
     Watch,
+    /// Show submission status
     Status,
 }
 
