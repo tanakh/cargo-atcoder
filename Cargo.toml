@@ -19,7 +19,7 @@ handlebars = "2.0"
 indicatif = "0.13"
 notify = "4.0"
 regex = "1"
-reqwest = { path = "reqwest", features = ["cookies"] }
+reqwest = { git = "https://github.com/tanakh/reqwest.git", branch = "expose_cookie", features = ["cookies"] }
 scraper = "0.11"
 serde = "1.0"
 serde_derive = "1.0"
