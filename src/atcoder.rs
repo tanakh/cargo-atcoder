@@ -1,10 +1,11 @@
 use anyhow::{anyhow, Result};
+use chrono::{DateTime, Utc};
+use regex::Regex;
 use scraper::{Html, Selector};
-use serde_derive::Deserialize;
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 const ATCODER_ENDPOINT: &str = "https://atcoder.jp";
 
@@ -41,52 +42,143 @@ impl ContestInfo {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SubmissionResults {
-    #[serde(rename = "Result")]
-    pub result: BTreeMap<String, SubmissionResult>,
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct SubmissionResult {
-    #[serde(rename = "Html")]
-    html: String,
-    #[serde(rename = "Score")]
-    score: String,
+    pub id: usize,
+    pub date: DateTime<Utc>,
+    pub problem_name: String,
+    pub user: String,
+    pub language: String,
+    pub score: i64,
+    pub code_length: String,
+    pub status: StatusCode,
+    pub run_time: Option<String>,
+    pub memory: Option<String>,
 }
 
 #[derive(Debug)]
-pub struct ResultStatus {
-    pub status: String,
-    pub time: Option<String>,
-    pub mem: Option<String>,
+pub struct FullSubmissionResult {
+    pub result: SubmissionResult,
+    pub cases: Vec<CaseResult>,
 }
 
-enum ResultType {
-    Waiting(String),
-    Progress(String),
-    Done(String),
+#[derive(Debug)]
+pub struct CaseResult {
+    pub name: String,
+    pub result: StatusCode,
 }
 
-impl SubmissionResult {
-    pub fn status(&self) -> ResultStatus {
-        let doc = Html::parse_fragment(&format!("<table><tr>{}</tr></table>", self.html));
+#[derive(Debug)]
+pub enum StatusCode {
+    Waiting(WaitingCode),
+    Progress(usize, usize, Option<ResultCode>),
+    Done(ResultCode),
+}
 
-        let status = doc
-            .select(&Selector::parse("td span").unwrap())
-            .next()
-            .unwrap()
-            .inner_html()
-            .trim()
-            .to_owned();
+#[derive(Debug)]
+pub enum WaitingCode {
+    WaitingForJudge,
+    WaitingForRejudge,
+}
 
-        let sel = Selector::parse("td").unwrap();
-        let mut it = doc.select(&sel);
-        let _ = it.next();
-        let time = it.next().map(|r| r.inner_html().trim().to_owned());
-        let mem = it.next().map(|r| r.inner_html().trim().to_owned());
+#[derive(Debug)]
+pub enum ResultCode {
+    CompileError,
+    MemoryLimitExceeded,
+    TimeLimitExceeded,
+    RuntimeError,
+    OutputLimitExceeded,
+    InternalError,
+    WrongAnswer,
+    Accepted,
+    Unknown(String),
+}
 
-        ResultStatus { status, time, mem }
+impl ResultCode {
+    pub fn short_msg(&self) -> String {
+        use ResultCode::*;
+        match self {
+            CompileError => "CE".to_string(),
+            MemoryLimitExceeded => "MLE".to_string(),
+            TimeLimitExceeded => "TLE".to_string(),
+            RuntimeError => "RE".to_string(),
+            OutputLimitExceeded => "OLE".to_string(),
+            InternalError => "IE".to_string(),
+            WrongAnswer => "WA".to_string(),
+            Accepted => "AC".to_string(),
+            Unknown(s) => format!("UNK({})", s),
+        }
+    }
+
+    pub fn long_msg(&self) -> String {
+        use ResultCode::*;
+        match self {
+            CompileError => "Compile Error".to_string(),
+            MemoryLimitExceeded => "Memory Limit Exceeded".to_string(),
+            TimeLimitExceeded => "Time Limit Exceeded".to_string(),
+            RuntimeError => "Runtime Error".to_string(),
+            OutputLimitExceeded => "Output Limit Exceeded".to_string(),
+            InternalError => "Internal Error".to_string(),
+            WrongAnswer => "Wrong Answer".to_string(),
+            Accepted => "Accepted".to_string(),
+            Unknown(code) => format!("Unknown ({})", code),
+        }
+    }
+
+    pub fn accepted(&self) -> bool {
+        use ResultCode::*;
+        match self {
+            Accepted => true,
+            _ => false,
+        }
+    }
+}
+
+impl StatusCode {
+    fn from_str(s: &str) -> Option<StatusCode> {
+        use ResultCode::*;
+        use StatusCode::*;
+        use WaitingCode::*;
+
+        match s {
+            "WJ" => return Some(Waiting(WaitingForJudge)),
+            "WR" => return Some(Waiting(WaitingForRejudge)),
+            _ => (),
+        }
+
+        // In progress, result code is as below:
+        // 6/9 TLE
+
+        let re = Regex::new(r"^(\d+) */ *(\d+) *(.*)$").unwrap();
+
+        if let Some(caps) = re.captures(s) {
+            let cur = caps[1].parse().unwrap();
+            let total = caps[2].parse().unwrap();
+
+            let rest = caps[3].trim();
+            if rest == "" {
+                return Some(Progress(cur, total, None));
+            }
+
+            let code = Self::from_str(rest)?;
+            if let Done(code) = code {
+                return Some(Progress(cur, total, Some(code)));
+            } else {
+                panic!("Invalid result status code: `{}`", s);
+            }
+        }
+
+        Some(Done(match s {
+            "CE" => CompileError,
+            "MLE" => MemoryLimitExceeded,
+            "TLE" => TimeLimitExceeded,
+            "RE" => RuntimeError,
+            "OLE" => OutputLimitExceeded,
+            "IE" => InternalError,
+            "WA" => WrongAnswer,
+            "AC" => Accepted,
+            _ => Unknown(s.to_owned()),
+        }))
     }
 }
 
@@ -129,18 +221,6 @@ impl AtCoder {
             session_file: session_file.to_owned(),
         })
     }
-
-    // pub fn save_session(&self) -> Vec<u8> {
-    //     self.client.cookie_store_json().unwrap()
-    // }
-
-    // pub fn load_session(session: Vec<u8>) -> Result<AtCoder> {
-    //     Ok(AtCoder {
-    //         client: reqwest::Client::builder()
-    //             .set_cookie_store(session)
-    //             .build()?,
-    //     })
-    // }
 
     pub async fn username(&self) -> Result<Option<String>> {
         let doc = http_get(&self.client, ATCODER_ENDPOINT).await?;
@@ -410,13 +490,99 @@ impl AtCoder {
         Ok(())
     }
 
-    pub async fn submission_status(&self, contest_id: &str) -> Result<SubmissionResults> {
+    pub async fn submission_status(&self, contest_id: &str) -> Result<Vec<SubmissionResult>> {
+        // FIXME: Currently, this returns only up to 20 submissions
+
         let t = format!(
-            "{}/contests/{}/submissions/me/status/json",
+            "{}/contests/{}/submissions/me",
             ATCODER_ENDPOINT, contest_id
         );
         let con = http_get(&self.client, &t).await?;
+        let doc = Html::parse_document(&con);
 
-        Ok(serde_json::from_str(&con)?)
+        let mut ret = vec![];
+
+        for r in doc.select(&Selector::parse("table tbody tr").unwrap()) {
+            // <td class="no-break"><time class='fixtime fixtime-second'>2020-01-18 03:59:59+0900</time></td>
+            // <td><a href="/contests/abc123/tasks/abc123_a">A - Five Antennas</a></td>
+            // <td><a href="/users/tanakh">tanakh</a> <a href='/contests/abc123/submissions?f.User=tanakh'><span class='glyphicon glyphicon-search black' aria-hidden='true' data-toggle='tooltip' title='tanakhさんの提出を見る'></span></a></td>
+            // <td>Rust (1.15.1)</td>
+            // <td class="text-right submission-score" data-id="9551881">0</td>
+            // <td class="text-right">1970 Byte</td>
+            // <td class='text-center'><span class='label label-warning' aria-hidden='true' data-toggle='tooltip' data-placement='top' title="実行時間制限超過">TLE</span>
+            // </td>
+            // <td class='text-right'>2103 ms</td>
+            // <td class='text-right'>4352 KB</td>
+            // <td class="text-center">
+            //     <a href="/contests/abc123/submissions/9551881">詳細</a>
+            // </td>
+
+            let res = (|| -> Option<SubmissionResult> {
+                let sel = Selector::parse("td").unwrap();
+                let mut it = r.select(&sel);
+
+                let date = it.next()?.first_child()?.first_child()?.value().as_text()?;
+                let date = chrono::DateTime::parse_from_str(date, "%Y-%m-%d %H:%M:%S%z")
+                    .ok()?
+                    .into();
+                // dbg!(&date);
+                let problem_name = it
+                    .next()?
+                    .first_child()?
+                    .first_child()?
+                    .value()
+                    .as_text()?
+                    .to_string();
+                // dbg!(&problem_name);
+                let user = it
+                    .next()?
+                    .first_child()?
+                    .first_child()?
+                    .value()
+                    .as_text()?
+                    .to_string();
+                // dbg!(&user);
+                let language = it.next()?.first_child()?.value().as_text()?.to_string();
+                // dbg!(&language);
+                let t = it.next()?;
+                let id: usize = t.value().attr("data-id")?.parse().ok()?;
+                // dbg!(id);
+                let score: i64 = t.first_child()?.value().as_text()?.parse().ok()?;
+                // dbg!(&score);
+                let code_length = it.next()?.first_child()?.value().as_text()?.to_string();
+                // dbg!(&code_length);
+                let status = StatusCode::from_str(
+                    it.next()?.first_child()?.first_child()?.value().as_text()?,
+                )?;
+                // dbg!(&status);
+
+                let resource = (|| {
+                    let run_time = it.next()?.first_child()?.value().as_text()?.to_string();
+                    let memory = it.next()?.first_child()?.value().as_text()?.to_string();
+                    Some((run_time, memory))
+                })();
+
+                Some(SubmissionResult {
+                    id,
+                    date,
+                    problem_name,
+                    user,
+                    language,
+                    score,
+                    code_length,
+                    status,
+                    run_time: resource.as_ref().map(|r| r.0.clone()),
+                    memory: resource.map(|r| r.1),
+                })
+            })();
+
+            if res.is_none() {
+                panic!("failed to parse result:\n{}", r.html());
+            }
+
+            ret.push(res.unwrap());
+        }
+
+        Ok(ret)
     }
 }

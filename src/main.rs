@@ -1,23 +1,28 @@
 use anyhow::{anyhow, Result};
+use chrono::{DateTime, Local};
+use console::Style;
 use futures::future::FutureExt;
-use futures::select;
+use futures::{join, pending, select};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_derive::Deserialize;
 use sha2::digest::Digest;
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{
+    cmp::min,
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
 use structopt::StructOpt;
+use tokio::time::delay_for;
+
 // use termion::event::{Event, Key};
 // use termion::input::TermRead;
-use tokio::time::delay_for;
 
 mod atcoder;
 
@@ -158,8 +163,6 @@ fn get_cur_contest_id() -> Result<String> {
 }
 
 fn test_samples(problem_id: &str, test_cases: &[TestCase]) -> Result<bool> {
-    use console::Style;
-
     let build_status = Command::new("cargo")
         .arg("build")
         .arg("--bin")
@@ -315,11 +318,11 @@ async fn watch() -> Result<()> {
 
     let atc = Arc::new(atc);
 
-    let submission_fut = {
-        let atc = atc.clone();
-        let contest_id = contest_id.clone();
-        tokio::spawn(async move { watch_submission_status(&atc, &contest_id).await })
-    };
+    // let submission_fut = {
+    //     let atc = atc.clone();
+    //     let contest_id = contest_id.clone();
+    //     tokio::spawn(async move { watch_submission_status(&atc, &contest_id).await })
+    // };
 
     let file_watcher_fut = {
         let atc = atc.clone();
@@ -342,7 +345,7 @@ async fn watch() -> Result<()> {
     // };
 
     select! {
-        _ = submission_fut.fuse() => (),
+        // _ = submission_fut.fuse() => (),
         _ = file_watcher_fut.fuse() => (),
         // _ = ui_fut.fuse() => (),
     };
@@ -350,30 +353,7 @@ async fn watch() -> Result<()> {
     Ok(())
 }
 
-async fn watch_submission_status(atc: &AtCoder, contest_id: &str) -> Result<()> {
-    // let mut dat = BTreeMap::new();
-
-    loop {
-        // let results = atc.submission_status(contest_id).await?;
-        // for (id, r) in results.result.into_iter() {
-        //     let r = r.status();
-
-        //     if !dat.contains_key(&id) {
-        //         dat.insert(id, r);
-        //     }
-
-        //     // println!(
-        //     //     "{} [{}] {} {}",
-        //     //     id,
-        //     //     r.status,
-        //     //     r.time.unwrap_or("N/A".to_string()),
-        //     //     r.mem.unwrap_or("N/A".to_string()),
-        //     // );
-        // }
-
-        delay_for(Duration::from_secs(3)).await;
-    }
-}
+// async fn watch_submission_status(atc: &AtCoder, contest_id: &str) -> Result<()> {}
 
 async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
     let contest_info = atc.contest_info(&contest_id).await?;
@@ -394,23 +374,13 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
         let src_dir = src_dir.clone();
         let pb = tokio::task::spawn_blocking(move || -> Option<PathBuf> {
             if let DebouncedEvent::Write(pb) = rx.lock().unwrap().recv().unwrap() {
-                let pb = if let Ok(pb) = pb.canonicalize() {
-                    pb
-                } else {
-                    return None;
-                };
-                if let Ok(r) = pb.strip_prefix(&src_dir) {
-                    if r.extension() == Some("rs").map(AsRef::as_ref) {
-                        return Some(r.to_owned());
-                    } else {
-                        return None;
-                    }
-                } else {
-                    return None;
+                let pb = pb.canonicalize().ok()?;
+                let r = pb.strip_prefix(&src_dir).ok()?;
+                if r.extension()? == "rs" {
+                    return Some(r.to_owned());
                 }
-            } else {
-                return None;
             }
+            None
         })
         .await?;
 
@@ -445,13 +415,12 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
             continue;
         }
 
-        println!("Sample passed.");
-        atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
-            .await?;
+        // atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
+        //     .await?;
     }
 }
 
-async fn status() -> Result<()> {
+async fn info() -> Result<()> {
     let atc = AtCoder::new(&session_file())?;
 
     if let Some(username) = atc.username().await? {
@@ -460,6 +429,130 @@ async fn status() -> Result<()> {
         println!("Not logged in.");
     }
 
+    Ok(())
+}
+
+async fn status() -> Result<()> {
+    let atc = AtCoder::new(&session_file())?;
+    let contest_id = get_cur_contest_id()?;
+
+    let m = Arc::new(MultiProgress::new());
+
+    let join_fut = tokio::task::spawn_blocking({
+        let m = m.clone();
+        move || loop {
+            m.join();
+            std::thread::sleep_ms(50);
+        }
+    });
+
+    let update_fut = tokio::task::spawn(async move {
+        let mut dat = BTreeMap::new();
+
+        let spinner_style = ProgressStyle::default_spinner().template("{prefix} {spinner} {msg}");
+
+        let bar_style = ProgressStyle::default_bar()
+            .template("{prefix} [{bar:30.cyan/blue}] {pos:>2}/{len:2} {msg}")
+            .progress_chars(">=");
+
+        let finish_style = ProgressStyle::default_spinner().template("{prefix} {msg}");
+
+        let green = Style::new().green();
+        let red = Style::new().red();
+
+        loop {
+            let mut results = atc.submission_status(&contest_id).await.unwrap();
+            results.sort_by_key(|r| r.date);
+            for result in results {
+                let pb = dat.entry(result.id).or_insert_with(|| {
+                    let pb = ProgressBar::new_spinner().with_style(spinner_style.clone());
+                    pb.set_prefix(&format!(
+                        "{} | {:20} | {:15} |",
+                        DateTime::<Local>::from(result.date).format("%Y-%m-%d %H:%M:%S"),
+                        &result.problem_name[0..min(20, result.problem_name.len())],
+                        &result.language[0..min(15, result.language.len())],
+                    ));
+                    (pb, true)
+                });
+
+                match result.status {
+                    StatusCode::Waiting(code) => {
+                        pb.0.set_style(spinner_style.clone());
+                        match code {
+                            WaitingCode::WaitingForJudge => {
+                                pb.0.set_message("Waiting for judge...")
+                            }
+                            WaitingCode::WaitingForRejudge => {
+                                pb.0.set_message("Waiting for rejudge...")
+                            }
+                        }
+                    }
+
+                    StatusCode::Progress(cur, total, code) => {
+                        pb.0.set_style(bar_style.clone());
+                        pb.0.set_length(total as _);
+                        pb.0.set_position(cur as _);
+                        if let Some(code) = code {
+                            let msg = code.short_msg();
+                            pb.0.set_message(&format!(
+                                "{}",
+                                if code.accepted() {
+                                    green.apply_to(&msg)
+                                } else {
+                                    red.apply_to(&msg)
+                                }
+                            ));
+                        } else {
+                            pb.0.set_message("");
+                        }
+                    }
+
+                    StatusCode::Done(code) => {
+                        if pb.1 {
+                            let msg = code.long_msg();
+                            let mut stat = format!(
+                                "{} ({})",
+                                if code.accepted() {
+                                    green.apply_to(&msg)
+                                } else {
+                                    red.apply_to(&msg)
+                                },
+                                result.score
+                            );
+                            let space = 30 - console::measure_text_width(&stat);
+                            for _ in 0..space {
+                                stat += " ";
+                            }
+                            pb.0.set_style(finish_style.clone());
+                            pb.0.finish_with_message(&format!(
+                                "{}{}",
+                                stat,
+                                if let (Some(rt), Some(mm)) = (result.run_time, result.memory) {
+                                    format!(" | {:>7} | {}", rt, mm)
+                                } else {
+                                    "".to_owned()
+                                }
+                            ));
+                            pb.1 = false;
+                        }
+                    }
+                }
+            }
+
+            let refresh_rate = 100;
+
+            for _ in 0..3000 / refresh_rate {
+                for (_, (pb, live)) in dat.iter() {
+                    if *live {
+                        pb.tick();
+                    }
+                }
+                delay_for(Duration::from_millis(refresh_rate)).await;
+            }
+        }
+    });
+
+    let _ = join!(join_fut, update_fut);
     Ok(())
 }
 
@@ -474,10 +567,11 @@ enum OptAtCoder {
     New(NewOpt),
     Login,
     Logout,
-    Status,
+    Info,
     Test(TestOpt),
     Submit,
     Watch,
+    Status,
 }
 
 #[tokio::main]
@@ -489,9 +583,10 @@ async fn main() -> Result<()> {
         New(opt) => new_project(opt),
         Login => login().await,
         Logout => unimplemented!(),
-        Status => status().await,
+        Info => info().await,
         Test(opt) => test(opt).await,
         Submit => unimplemented!(),
         Watch => watch().await,
+        Status => status().await,
     }
 }
