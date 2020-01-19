@@ -8,7 +8,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use sha2::digest::Digest;
 use std::{
-    cmp::min,
+    cmp::{max, min},
     collections::BTreeMap,
     fs,
     io::Write,
@@ -132,6 +132,9 @@ struct TestOpt {
     /// Submit if test passed
     #[structopt(short, long)]
     submit: bool,
+    /// Use --release flag to compile
+    #[structopt(long)]
+    release: bool,
     /// Use verbose output
     #[structopt(short, long)]
     verbose: bool,
@@ -157,7 +160,7 @@ async fn test(opt: TestOpt) -> Result<()> {
         }
     }
 
-    let passed = test_samples(&problem_id, &tcs, opt.verbose)?;
+    let passed = test_samples(&problem_id, &tcs, opt.release, opt.verbose)?;
     if passed {
         if opt.submit {
             let source = fs::read(format!("src/bin/{}.rs", problem_id))
@@ -176,9 +179,15 @@ fn get_cur_contest_id() -> Result<String> {
     Ok(manifest["package"]["name"].as_str().unwrap().to_owned())
 }
 
-fn test_samples(problem_id: &str, test_cases: &[(usize, TestCase)], verbose: bool) -> Result<bool> {
+fn test_samples(
+    problem_id: &str,
+    test_cases: &[(usize, TestCase)],
+    release: bool,
+    verbose: bool,
+) -> Result<bool> {
     let build_status = Command::new("cargo")
         .arg("build")
+        .args(if release { vec!["--release"] } else { vec![] })
         .arg("--bin")
         .arg(&problem_id)
         .status()?;
@@ -307,25 +316,25 @@ fn print_lines(s: &str) {
 struct SubmitOpt {
     /// Problem ID (e.g. a, b, ...)
     problem_id: String,
-
     /// Force submit even if test fails
     #[structopt(short, long)]
     force: bool,
-
     /// Skip test
-    #[structopt(short, long)]
+    #[structopt(long)]
     skip_test: bool,
-
-    /// Submit via binary
-    #[structopt(short, long)]
+    /// Submit via binary (overwrite config)
+    #[structopt(long, conflicts_with = "source")]
     bin: bool,
+    /// Submit source code directory (overwrite config)
+    #[structopt(long, conflicts_with = "bin")]
+    source: bool,
+    /// Use --release on pre-test (submission always uses --release)
+    #[structopt(long)]
+    release: bool,
 }
 
 async fn submit(opt: SubmitOpt) -> Result<()> {
     let atc = AtCoder::new(&session_file())?;
-    atc.username()
-        .await?
-        .ok_or(anyhow!("You are not logged in. Please login first."))?;
     let config = read_config()?;
 
     let contest_id = get_cur_contest_id()?;
@@ -345,7 +354,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
             .into_iter()
             .enumerate()
             .collect::<Vec<_>>();
-        test_samples(&problem_id, &test_cases, false)?
+        test_samples(&problem_id, &test_cases, opt.release, false)?
     };
 
     if !test_passed && !opt.force {
@@ -353,16 +362,21 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
         return Ok(());
     }
 
-    let source = if !opt.bin {
+    let via_bin = opt.bin || (config.atcoder.submit_via_binary && !opt.source);
+
+    let source = if !via_bin {
         fs::read(format!("src/bin/{}.rs", problem_id))
             .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?
     } else {
+        println!("Submitting via binary...");
         gen_binary_source(&problem_id, &config)?
     };
 
     atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
         .await?;
     println!();
+
+    println!("Fetching submission result...");
     watch_submission_status(Arc::new(atc), &contest_id, true).await?;
     println!();
 
@@ -381,6 +395,7 @@ fn gen_binary_source(problem_id: &str, config: &Config) -> Result<Vec<u8>> {
         .arg("--release")
         .arg("--bin")
         .arg(&problem_id)
+        .arg("--quiet")
         .status()?;
 
     if !status.success() {
@@ -551,7 +566,7 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
 
         let test_cases = atc.test_cases(&problem.url).await?;
         let test_cases = test_cases.into_iter().enumerate().collect::<Vec<_>>();
-        let test_passed = test_samples(&problem_id, &test_cases, false)?;
+        let test_passed = test_samples(&problem_id, &test_cases, false, false)?;
 
         if !test_passed {
             continue;
@@ -579,6 +594,7 @@ async fn watch_submission_status(
     contest_id: &str,
     recent_only: bool,
 ) -> Result<()> {
+    let config = read_config()?;
     let cur_time = chrono::offset::Utc::now();
 
     let contest_id = contest_id.to_owned();
@@ -600,11 +616,12 @@ async fn watch_submission_status(
     let update_fut = tokio::task::spawn(async move {
         let mut dat = BTreeMap::new();
 
-        let spinner_style = ProgressStyle::default_spinner().template("{prefix} {spinner} {msg}");
+        let spinner_style =
+            ProgressStyle::default_spinner().template("{prefix} {spinner:.cyan} {msg}");
 
         let bar_style = ProgressStyle::default_bar()
             .template("{prefix} [{bar:30.cyan/blue}] {pos:>2}/{len:2} {msg}")
-            .progress_chars(">=");
+            .progress_chars("=>.");
 
         let finish_style = ProgressStyle::default_spinner().template("{prefix} {msg}");
 
@@ -628,12 +645,20 @@ async fn watch_submission_status(
             for result in results {
                 let pb = dat.entry(result.id).or_insert_with(|| {
                     let pb = ProgressBar::new_spinner().with_style(spinner_style.clone());
+
+                    // pb.set_prefix(&format!(
+                    //     "{} | {:20} | {:15} |",
+                    //     DateTime::<Local>::from(result.date).format("%Y-%m-%d %H:%M:%S"),
+                    //     &result.problem_name[0..min(20, result.problem_name.len())],
+                    //     &result.language[0..min(15, result.language.len())],
+                    // ));
+
                     pb.set_prefix(&format!(
-                        "{} | {:20} | {:15} |",
+                        "{} | {:20} |",
                         DateTime::<Local>::from(result.date).format("%Y-%m-%d %H:%M:%S"),
                         &result.problem_name[0..min(20, result.problem_name.len())],
-                        &result.language[0..min(15, result.language.len())],
                     ));
+
                     (pb, true)
                 });
 
@@ -710,8 +735,9 @@ async fn watch_submission_status(
             }
 
             let refresh_rate = 100;
+            let update_interval = max(1000, config.atcoder.update_interval);
 
-            for _ in 0..3000 / refresh_rate {
+            for _ in 0..update_interval / refresh_rate {
                 for (_, (pb, live)) in dat.iter() {
                     if *live {
                         pb.tick();

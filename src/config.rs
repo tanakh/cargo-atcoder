@@ -6,9 +6,16 @@ use toml::Value;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
+    pub atcoder: AtCoder,
     pub profile: Profile,
     pub dependencies: BTreeMap<String, Value>,
     pub project: Project,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AtCoder {
+    pub submit_via_binary: bool,
+    pub update_interval: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
