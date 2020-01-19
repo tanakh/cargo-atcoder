@@ -1,5 +1,5 @@
 [atcoder]
-submit_via_binary = true
+submit_via_binary = false
 update_interval = 1000
 
 [profile]
