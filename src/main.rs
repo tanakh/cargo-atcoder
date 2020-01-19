@@ -28,7 +28,6 @@ use tokio::time::delay_for;
 // use termion::input::TermRead;
 
 mod atcoder;
-mod base64;
 mod config;
 
 use atcoder::*;
