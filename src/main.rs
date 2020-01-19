@@ -404,7 +404,7 @@ fn gen_binary_source(problem_id: &str, config: &Config) -> Result<Vec<u8>> {
     let mut handlebars = Handlebars::new();
     handlebars.register_escape_fn(|s: &str| s.to_owned());
 
-    let templ = include_str!("../data/binary_runner.rs");
+    let templ = include_str!("../data/binary_runner.rs.txt");
     handlebars.register_template_string("binary_runner", templ)?;
 
     let bin = fs::read(&binary_file)?;
