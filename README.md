@@ -78,3 +78,7 @@ $ cargo atcoder submit a --bin
 ### `cargo atcoder test`
 
 テストケースの実行に特化したコマンドです。テストケースの指定や、verboseな実行ができたりします。
+
+## 設定ファイル
+
+`~/.config/cargo-atcoder.toml` に設定ファイルが生成されます。適当にいじって下さい（そのうち説明を書く）。
