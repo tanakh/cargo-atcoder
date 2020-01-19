@@ -127,8 +127,12 @@ fn clear_session() -> Result<()> {
 struct TestOpt {
     /// Problem ID (e.g. a, b, ...)
     problem_id: String,
-    /// Specify case number to test
+    /// Specify case number to test (e.g. 1, 2, ...)
+    #[structopt(conflicts_with = "custom")]
     case_num: Vec<usize>,
+    /// Use custom case from stdin
+    #[structopt(short, long, conflicts_with = "case_num")]
+    custom: bool,
     /// Submit if test passed
     #[structopt(short, long)]
     submit: bool,
@@ -150,6 +154,10 @@ async fn test(opt: TestOpt) -> Result<()> {
         "Problem `{}` is not contained in this contest",
         &problem_id
     ))?;
+
+    if opt.custom {
+        return test_custom(&problem_id, opt.release);
+    }
 
     let test_cases = atc.test_cases(&problem.url).await?;
 
@@ -218,6 +226,7 @@ fn test_samples(
     for &(i, ref test_case) in test_cases.iter() {
         let mut child = Command::new("cargo")
             .arg("run")
+            .args(if release { vec!["--release"] } else { vec![] })
             .arg("-q")
             .arg("--bin")
             .arg(&problem_id)
@@ -316,6 +325,68 @@ fn test_samples(
         println!();
         Ok(false)
     }
+}
+
+fn test_custom(problem_id: &str, release: bool) -> Result<()> {
+    let build_status = Command::new("cargo")
+        .arg("build")
+        .args(if release { vec!["--release"] } else { vec![] })
+        .arg("--bin")
+        .arg(&problem_id)
+        .status()?;
+
+    if !build_status.success() {
+        Err(anyhow!("Build failed"))?;
+    }
+
+    println!("input test case:");
+
+    let red = Style::new().red();
+    let cyan = Style::new().cyan();
+
+    let child = Command::new("cargo")
+        .arg("run")
+        .args(if release { vec!["--release"] } else { vec![] })
+        .arg("-q")
+        .arg("--bin")
+        .arg(&problem_id)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        println!(
+            "{}: exit code: {}",
+            red.apply_to("runtime error"),
+            output.status.code().unwrap_or_default(),
+        );
+        println!();
+
+        if output.stdout.len() > 0 {
+            println!("stdout:");
+            print_lines(&String::from_utf8_lossy(&output.stdout));
+            println!();
+        }
+
+        if output.stderr.len() > 0 {
+            println!("stderr:");
+            print_lines(&String::from_utf8_lossy(&output.stderr));
+            println!();
+        }
+    } else {
+        println!("{}:", cyan.apply_to("your output"));
+        print_lines(&String::from_utf8_lossy(&output.stdout));
+        println!();
+
+        if output.stderr.len() > 0 {
+            println!("stderr:");
+            print_lines(&String::from_utf8_lossy(&output.stderr));
+            println!();
+        }
+    }
+    println!();
+    Ok(())
 }
 
 fn print_lines(s: &str) {
