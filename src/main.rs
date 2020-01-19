@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use bytesize::ByteSize;
 use chrono::{DateTime, Local};
 use console::Style;
-use futures::{future::FutureExt, join, select};
+use futures::{future::FutureExt, select};
 use handlebars::Handlebars;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
@@ -590,13 +590,14 @@ async fn watch_submission_status(
         let m = m.clone();
         let complete = Arc::clone(&complete);
         move || {
-            while complete.load(Ordering::Relaxed) {
+            while !complete.load(Ordering::Relaxed) {
                 m.join().unwrap();
                 std::thread::sleep(Duration::from_millis(50));
             }
         }
     });
 
+    let complete_ = Arc::clone(&complete);
     let update_fut = tokio::task::spawn(async move {
         let mut dat = BTreeMap::new();
 
@@ -612,7 +613,7 @@ async fn watch_submission_status(
         let red = Style::new().red();
 
         loop {
-            let results = atc.submission_status(&contest_id).await.unwrap();
+            let results = atc.submission_status(&contest_id).await?;
             let mut results = if !recent_only {
                 results
             } else {
@@ -704,7 +705,7 @@ async fn watch_submission_status(
                 }
             }
 
-            if done {
+            if done && recent_only {
                 complete.store(true, Ordering::Relaxed);
                 break;
             }
@@ -720,10 +721,20 @@ async fn watch_submission_status(
                 delay_for(Duration::from_millis(refresh_rate)).await;
             }
         }
+
+        let ret: Result<()> = Ok(());
+        ret
     });
 
-    let _ = join!(join_fut, update_fut);
-    Ok(())
+    select! {
+        res = join_fut.fuse() => {
+            res.map_err(|e| e.into())
+        }
+        res = update_fut.fuse() => {
+            complete_.store(true, Ordering::Relaxed);
+            res?
+        }
+    }
 }
 
 async fn status() -> Result<()> {

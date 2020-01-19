@@ -28,8 +28,5 @@ pub fn read_config() -> Result<Config> {
         .join("cargo-atcoder.toml");
     let s = std::fs::read_to_string(&config_path)
         .map_err(|_| anyhow!("Cannot read file: {}", config_path.display()))?;
-    let config: Config = toml::from_str(&s)?;
-    dbg!(&config);
-
-    Ok(config)
+    Ok(toml::from_str(&s)?)
 }
