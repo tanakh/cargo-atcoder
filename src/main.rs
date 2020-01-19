@@ -153,6 +153,16 @@ async fn test(opt: TestOpt) -> Result<()> {
 
     let test_cases = atc.test_cases(&problem.url).await?;
 
+    for &cn in opt.case_num.iter() {
+        if cn <= 0 || cn > test_cases.len() {
+            Err(anyhow!(
+                "Case num {} is not found in problem {} samples",
+                cn,
+                problem_id
+            ))?;
+        }
+    }
+
     let mut tcs = vec![];
     for (i, tc) in test_cases.into_iter().enumerate() {
         if opt.case_num.len() == 0 || opt.case_num.contains(&(i + 1)) {
@@ -270,12 +280,14 @@ fn test_samples(
                 println!();
             }
         } else {
+            let tc = &test_cases.iter().find(|r| r.0 == case_no).unwrap().1;
+
             println!("{}:", cyan.apply_to("input"));
-            print_lines(&test_cases[case_no].1.input);
+            print_lines(&tc.input);
             println!();
 
             println!("{}:", green.apply_to("expected output"));
-            print_lines(&test_cases[case_no].1.output);
+            print_lines(&tc.output);
             println!();
 
             println!("{}:", red.apply_to("your output"));
@@ -363,7 +375,6 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     }
 
     let via_bin = opt.bin || (config.atcoder.submit_via_binary && !opt.source);
-
     let source = if !via_bin {
         fs::read(format!("src/bin/{}.rs", problem_id))
             .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?
