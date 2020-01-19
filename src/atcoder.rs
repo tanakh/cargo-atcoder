@@ -230,6 +230,14 @@ impl AtCoder {
         })
     }
 
+    async fn check_login(&self) -> Result<()> {
+        let _ = self
+            .username()
+            .await?
+            .ok_or(anyhow!("You are not logged in. Please login first."))?;
+        Ok(())
+    }
+
     pub async fn username(&self) -> Result<Option<String>> {
         let doc = http_get(&self.client, ATCODER_ENDPOINT).await?;
         let doc = Html::parse_document(&doc);
@@ -252,14 +260,10 @@ impl AtCoder {
 
         let document = Html::parse_document(&doc);
 
-        // dbg!(&document);
-
         let csrf_token = document
             .select(&Selector::parse("input[name=\"csrf_token\"]").unwrap())
             .next()
             .ok_or(anyhow!("cannot find csrf_token"))?;
-
-        // dbg!(&csrf_token);
 
         let csrf_token = csrf_token
             .value()
@@ -285,7 +289,7 @@ impl AtCoder {
         // On failure:
         // <div class="alert alert-danger alert-dismissible col-sm-12 fade in" role="alert">
         //   ...
-        //   {error message}
+        //   {{error message}}
         // </div>
         if let Some(err) = res
             .select(&Selector::parse("div.alert-danger").unwrap())
@@ -313,6 +317,8 @@ impl AtCoder {
     }
 
     pub async fn contest_info(&self, contest_id: &str) -> Result<ContestInfo> {
+        self.check_login().await?;
+
         let t = format!("{}/contests/{}/tasks", ATCODER_ENDPOINT, contest_id);
         let doc = http_get(&self.client, &t).await?;
 
@@ -352,7 +358,6 @@ impl AtCoder {
             let tle = c3.inner_html();
             let mle = c4.inner_html();
 
-            // dbg!(&id, &name, &url, &tle, &mle);
             problems.push(Problem {
                 id: id.trim().to_owned(),
                 name: name.trim().to_owned(),
@@ -366,6 +371,8 @@ impl AtCoder {
     }
 
     pub async fn test_cases(&self, problem_url: &str) -> Result<Vec<TestCase>> {
+        self.check_login().await?;
+
         let t = format!("{}{}", ATCODER_ENDPOINT, problem_url);
         let doc = http_get(&self.client, &t).await?;
 
@@ -410,6 +417,8 @@ impl AtCoder {
         problem_id: &str,
         source_code: &str,
     ) -> Result<()> {
+        self.check_login().await?;
+
         let t = format!("{}/contests/{}/submit", ATCODER_ENDPOINT, contest_id);
         let doc = http_get(&self.client, &t).await?;
 
@@ -499,6 +508,8 @@ impl AtCoder {
     }
 
     pub async fn submission_status(&self, contest_id: &str) -> Result<Vec<SubmissionResult>> {
+        self.check_login().await?;
+
         // FIXME: Currently, this returns only up to 20 submissions
 
         let t = format!(
@@ -533,7 +544,6 @@ impl AtCoder {
                 let date = chrono::DateTime::parse_from_str(date, "%Y-%m-%d %H:%M:%S%z")
                     .ok()?
                     .into();
-                // dbg!(&date);
                 let problem_name = it
                     .next()?
                     .first_child()?
@@ -541,7 +551,6 @@ impl AtCoder {
                     .value()
                     .as_text()?
                     .to_string();
-                // dbg!(&problem_name);
                 let user = it
                     .next()?
                     .first_child()?
@@ -549,20 +558,14 @@ impl AtCoder {
                     .value()
                     .as_text()?
                     .to_string();
-                // dbg!(&user);
                 let language = it.next()?.first_child()?.value().as_text()?.to_string();
-                // dbg!(&language);
                 let t = it.next()?;
                 let id: usize = t.value().attr("data-id")?.parse().ok()?;
-                // dbg!(id);
                 let score: i64 = t.first_child()?.value().as_text()?.parse().ok()?;
-                // dbg!(&score);
                 let code_length = it.next()?.first_child()?.value().as_text()?.to_string();
-                // dbg!(&code_length);
                 let status = StatusCode::from_str(
                     it.next()?.first_child()?.first_child()?.value().as_text()?,
                 )?;
-                // dbg!(&status);
 
                 let resource = (|| {
                     let run_time = it.next()?.first_child()?.value().as_text()?.to_string();

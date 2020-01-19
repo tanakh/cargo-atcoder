@@ -9,7 +9,6 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0"
 bytesize = "1.0"
-cargo_toml = "0.8"
 chrono = "0.4"
 console = "0.9"
 dialoguer = "0.5"

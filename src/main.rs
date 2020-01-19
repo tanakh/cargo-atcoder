@@ -6,7 +6,6 @@ use futures::{future::FutureExt, join, select};
 use handlebars::Handlebars;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
-use serde_derive::Deserialize;
 use sha2::digest::Digest;
 use std::{
     cmp::min,
@@ -30,26 +29,10 @@ use tokio::time::delay_for;
 
 mod atcoder;
 mod base64;
+mod config;
 
 use atcoder::*;
-
-#[derive(Debug, Deserialize)]
-struct Config {
-    template: String,
-    rustc_version: String,
-}
-
-fn read_config() -> Result<Config> {
-    let config_path = dirs::config_dir()
-        .ok_or(anyhow!("Failed to get config directory"))?
-        .join("cargo-atcoder.toml");
-    let s = std::fs::read_to_string(&config_path)
-        .map_err(|_| anyhow!("Cannot read file: {}", config_path.display()))?;
-    let config: Config = toml::from_str(&s)?;
-
-    // dbg!(&config);
-    Ok(config)
-}
+use config::{read_config, Config};
 
 fn session_file() -> PathBuf {
     dirs::cache_dir()
@@ -77,7 +60,6 @@ fn new_project(opt: NewOpt) -> Result<()> {
         Err(anyhow!("Directory {} already exists", dir.display()))?;
     }
 
-    // FIXME: use specified version via rustup
     let stat = Command::new("cargo")
         .arg("new")
         .arg(&opt.contest_id)
@@ -86,19 +68,33 @@ fn new_project(opt: NewOpt) -> Result<()> {
         Err(anyhow!("Failed to create project: {}", &opt.contest_id))?;
     }
 
+    // fs::write(dir.join("rust-toolchain"), &config.rustc_version)?;
+
     fs::remove_file(dir.join("src").join("main.rs"))?;
     fs::create_dir(dir.join("src").join("bin"))?;
-
-    fs::write(dir.join("rust-toolchain"), &config.rustc_version)?;
 
     for i in 0..opt.num_problems {
         fs::write(
             dir.join("src")
                 .join("bin")
                 .join(format!("{}.rs", ('a' as u8 + i as u8) as char)),
-            &config.template,
+            &config.project.template,
         )?;
     }
+
+    let toml_file = dir.join("Cargo.toml");
+    let mut manifest: BTreeMap<String, toml::Value> =
+        toml::from_str(&fs::read_to_string(&toml_file)?)?;
+
+    manifest.insert("dependencies".to_string(), config.dependencies.into());
+
+    manifest.insert("profile".to_string(), {
+        let mut m = BTreeMap::new();
+        m.insert("release".to_string(), config.profile.release.clone());
+        m.into()
+    });
+
+    fs::write(toml_file, toml::to_string_pretty(&manifest)?)?;
 
     Ok(())
 }
@@ -137,14 +133,13 @@ struct TestOpt {
     /// Submit if test passed
     #[structopt(short, long)]
     submit: bool,
+    /// Use verbose output
+    #[structopt(short, long)]
+    verbose: bool,
 }
 
 async fn test(opt: TestOpt) -> Result<()> {
     let atc = AtCoder::new(&session_file())?;
-    atc.username()
-        .await?
-        .ok_or(anyhow!("You are not logged in. Please login first."))?;
-
     let problem_id = opt.problem_id;
     let contest_id = get_cur_contest_id()?;
     let contest_info = atc.contest_info(&contest_id).await?;
@@ -163,7 +158,7 @@ async fn test(opt: TestOpt) -> Result<()> {
         }
     }
 
-    let passed = test_samples(&problem_id, &tcs)?;
+    let passed = test_samples(&problem_id, &tcs, opt.verbose)?;
     if passed {
         if opt.submit {
             let source = fs::read(format!("src/bin/{}.rs", problem_id))
@@ -178,12 +173,11 @@ async fn test(opt: TestOpt) -> Result<()> {
 }
 
 fn get_cur_contest_id() -> Result<String> {
-    let manifest = cargo_toml::Manifest::from_path("Cargo.toml")?;
-    let package = manifest.package.unwrap();
-    Ok(package.name)
+    let manifest: toml::Value = toml::from_str(&fs::read_to_string("Cargo.toml")?)?;
+    Ok(manifest["package"]["name"].as_str().unwrap().to_owned())
 }
 
-fn test_samples(problem_id: &str, test_cases: &[(usize, TestCase)]) -> Result<bool> {
+fn test_samples(problem_id: &str, test_cases: &[(usize, TestCase)], verbose: bool) -> Result<bool> {
     let build_status = Command::new("cargo")
         .arg("build")
         .arg("--bin")
@@ -234,17 +228,16 @@ fn test_samples(problem_id: &str, test_cases: &[(usize, TestCase)]) -> Result<bo
             fails.push((i, true, output));
         } else {
             println!("test sample {} ... {}", i + 1, green.apply_to("ok"));
+            if verbose && output.stderr.len() > 0 {
+                println!("stderr:");
+                print_lines(&String::from_utf8_lossy(&output.stderr));
+                println!();
+            }
         }
     }
     println!();
 
     let fail_num = fails.len();
-
-    if fail_num == 0 {
-        println!("test_result: {}", green.apply_to("ok"));
-        println!();
-        return Ok(true);
-    }
 
     for (case_no, exec_success, output) in fails {
         println!("---- sample {} ----", case_no + 1);
@@ -289,15 +282,20 @@ fn test_samples(problem_id: &str, test_cases: &[(usize, TestCase)]) -> Result<bo
         }
     }
 
-    println!(
-        "test result: {}. {} passed; {} failed",
-        red.apply_to("FAILED"),
-        test_case_num - fail_num,
-        fail_num
-    );
-    println!();
-
-    Ok(false)
+    if fail_num == 0 {
+        println!("test_result: {}", green.apply_to("ok"));
+        println!();
+        return Ok(true);
+    } else {
+        println!(
+            "test result: {}. {} passed; {} failed",
+            red.apply_to("FAILED"),
+            test_case_num - fail_num,
+            fail_num
+        );
+        println!();
+        Ok(false)
+    }
 }
 
 fn print_lines(s: &str) {
@@ -329,6 +327,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     atc.username()
         .await?
         .ok_or(anyhow!("You are not logged in. Please login first."))?;
+    let config = read_config()?;
 
     let contest_id = get_cur_contest_id()?;
     let problem_id = opt.problem_id;
@@ -347,7 +346,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
             .into_iter()
             .enumerate()
             .collect::<Vec<_>>();
-        test_samples(&problem_id, &test_cases)?
+        test_samples(&problem_id, &test_cases, false)?
     };
 
     if !test_passed && !opt.force {
@@ -359,61 +358,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
         fs::read(format!("src/bin/{}.rs", problem_id))
             .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?
     } else {
-        let source_code = fs::read_to_string(format!("src/bin/{}.rs", problem_id))
-            .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
-
-        let target = "x86_64-unknown-linux-musl";
-
-        let status = Command::new("cargo")
-            .arg("build")
-            .arg(format!("--target={}", target))
-            .arg("--release")
-            .arg("--bin")
-            .arg(&problem_id)
-            .status()?;
-
-        if !status.success() {
-            Err(anyhow!("Build failed"))?;
-        }
-
-        let binary_file = format!("target/{}/release/{}", target, problem_id);
-
-        let size = ByteSize::b(get_file_size(&binary_file)?);
-        println!("Built binary size: {}", size);
-
-        let status = Command::new("strip").arg("-s").arg(&binary_file).status()?;
-
-        let size = ByteSize::b(get_file_size(&binary_file)?);
-        println!("Stripped binary size: {}", size);
-
-        if !status.success() {
-            Err(anyhow!("strip failed"))?;
-        }
-
-        let mut handlebars = Handlebars::new();
-        handlebars.register_escape_fn(|s: &str| s.to_owned());
-
-        let templ = include_str!("../data/binary_runner.rs");
-        handlebars.register_template_string("binary_runner", templ)?;
-
-        let bin = fs::read(&binary_file)?;
-
-        let mut data = BTreeMap::new();
-        data.insert("BINARY", base64::encode(&bin));
-        data.insert("SOURCE_CODE", source_code);
-
-        let code = handlebars.render("binary_runner", &data)?.trim().to_owned();
-
-        let size = ByteSize::b(code.len() as u64);
-        println!("Bundled code size: {}", size);
-
-        let size_limit = ByteSize::kb(512);
-
-        if size > size_limit {
-            println!("Code size limit exceeded: larger than {}", size_limit);
-        }
-
-        code.bytes().collect::<Vec<u8>>()
+        gen_binary_source(&problem_id, &config)?
     };
 
     atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
@@ -423,6 +368,64 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     println!();
 
     Ok(())
+}
+
+fn gen_binary_source(problem_id: &str, config: &Config) -> Result<Vec<u8>> {
+    let source_code = fs::read_to_string(format!("src/bin/{}.rs", problem_id))
+        .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
+
+    let target = &config.profile.target;
+
+    let status = Command::new("cargo")
+        .arg("build")
+        .arg(format!("--target={}", target))
+        .arg("--release")
+        .arg("--bin")
+        .arg(&problem_id)
+        .status()?;
+
+    if !status.success() {
+        Err(anyhow!("Build failed"))?;
+    }
+
+    let binary_file = format!("target/{}/release/{}", target, problem_id);
+
+    let size = ByteSize::b(get_file_size(&binary_file)?);
+    println!("Built binary size: {}", size);
+
+    let status = Command::new("strip").arg("-s").arg(&binary_file).status()?;
+
+    let size = ByteSize::b(get_file_size(&binary_file)?);
+    println!("Stripped binary size: {}", size);
+
+    if !status.success() {
+        Err(anyhow!("strip failed"))?;
+    }
+
+    let mut handlebars = Handlebars::new();
+    handlebars.register_escape_fn(|s: &str| s.to_owned());
+
+    let templ = include_str!("../data/binary_runner.rs");
+    handlebars.register_template_string("binary_runner", templ)?;
+
+    let bin = fs::read(&binary_file)?;
+
+    let mut data = BTreeMap::new();
+    data.insert("BINARY", base64::encode(&bin));
+    data.insert("SOURCE_CODE", source_code);
+
+    let code = handlebars.render("binary_runner", &data)?.trim().to_owned();
+
+    let size = ByteSize::b(code.len() as u64);
+    println!("Bundled code size: {}", size);
+
+    let size_limit = ByteSize::kb(512);
+
+    if size > size_limit {
+        println!("Code size limit exceeded: larger than {}", size_limit);
+    }
+
+    Ok(code.bytes().collect::<Vec<u8>>())
 }
 
 fn get_file_size(path: impl AsRef<Path>) -> Result<u64> {
@@ -455,11 +458,7 @@ async fn watch() -> Result<()> {
 
     let atc = AtCoder::new(&session_file())?;
 
-    // FIXME: check logined
-
-    let manifest = cargo_toml::Manifest::from_path("Cargo.toml")?;
-    let package = manifest.package.unwrap();
-    let contest_id = package.name;
+    let contest_id = get_cur_contest_id()?;
 
     let atc = Arc::new(atc);
 
@@ -497,8 +496,6 @@ async fn watch() -> Result<()> {
 
     Ok(())
 }
-
-// async fn watch_submission_status(atc: &AtCoder, contest_id: &str) -> Result<()> {}
 
 async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
     let contest_info = atc.contest_info(&contest_id).await?;
@@ -555,7 +552,7 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
 
         let test_cases = atc.test_cases(&problem.url).await?;
         let test_cases = test_cases.into_iter().enumerate().collect::<Vec<_>>();
-        let test_passed = test_samples(&problem_id, &test_cases)?;
+        let test_passed = test_samples(&problem_id, &test_cases, false)?;
 
         if !test_passed {
             continue;
@@ -749,8 +746,8 @@ enum OptAtCoder {
     New(NewOpt),
     /// Login to atcoder
     Login,
-    /// Logout from atcoder
-    Logout,
+    // /// Logout from atcoder
+    // Logout,
     /// Clear session data (cookie store in HTTP client)
     ClearSession,
     /// Show session information
@@ -773,7 +770,7 @@ async fn main() -> Result<()> {
     match opt {
         New(opt) => new_project(opt),
         Login => login().await,
-        Logout => unimplemented!(),
+        // Logout => unimplemented!(),
         ClearSession => clear_session(),
         Info => info().await,
         Test(opt) => test(opt).await,
