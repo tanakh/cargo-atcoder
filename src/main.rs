@@ -777,6 +777,8 @@ enum OptAtCoder {
 async fn main() -> Result<()> {
     let Opt::AtCoder(opt) = Opt::from_args();
 
+    let _ = read_config()?; // for checking config syntax
+
     use OptAtCoder::*;
     match opt {
         New(opt) => new_project(opt),

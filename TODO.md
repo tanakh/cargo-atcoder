@@ -18,7 +18,7 @@
         $ rustup target add x86_64-unknown-linux-musl
         $ cargo build --target x86_64-unknown-linux-musl
 
-[ ] 初回時にデフォルトコンフィグをコピーする
+[x] 初回時にデフォルトコンフィグをコピーする
 
 [ ] ACじゃなかったときに、結果の内訳を表示する
 

@@ -16,6 +16,7 @@ dirs = "2.0"
 futures = "0.3"
 handlebars = "2.0"
 indicatif = "0.13"
+lazy_static = "1.4.0"
 notify = "4.0"
 regex = "1"
 reqwest = { git = "https://github.com/tanakh/reqwest.git", branch = "expose_cookie", features = ["cookies"] }
