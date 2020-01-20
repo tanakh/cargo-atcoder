@@ -219,7 +219,7 @@ impl AtCoder {
                 if err.kind() == ErrorKind::NotFound {
                     cb
                 } else {
-                    Err(err)?
+                    return Err(err.into());
                 }
             }
         };
@@ -234,7 +234,7 @@ impl AtCoder {
         let _ = self
             .username()
             .await?
-            .ok_or(anyhow!("You are not logged in. Please login first."))?;
+            .ok_or_else(|| anyhow!("You are not logged in. Please login first."))?;
         Ok(())
     }
 
@@ -263,19 +263,19 @@ impl AtCoder {
         let csrf_token = document
             .select(&Selector::parse("input[name=\"csrf_token\"]").unwrap())
             .next()
-            .ok_or(anyhow!("cannot find csrf_token"))?;
+            .ok_or_else(|| anyhow!("cannot find csrf_token"))?;
 
         let csrf_token = csrf_token
             .value()
             .attr("value")
-            .ok_or(anyhow!("cannot find csrf_token"))?;
+            .ok_or_else(|| anyhow!("cannot find csrf_token"))?;
 
         let res = self
             .client
             .post(&format!("{}/login", ATCODER_ENDPOINT))
             .form(&[
-                ("username", username.as_ref()),
-                ("password", password.as_ref()),
+                ("username", username),
+                ("password", password),
                 ("csrf_token", csrf_token),
             ])
             .send()
@@ -295,10 +295,10 @@ impl AtCoder {
             .select(&Selector::parse("div.alert-danger").unwrap())
             .next()
         {
-            Err(anyhow!(
+            return Err(anyhow!(
                 "Login failed: {}",
                 err.last_child().unwrap().value().as_text().unwrap().trim()
-            ))?
+            ));
         }
 
         // On success:
@@ -306,9 +306,10 @@ impl AtCoder {
         //     ...
         //     ようこそ、tanakh さん。
         // </div>
-        if let Some(_) = res
+        if res
             .select(&Selector::parse("div.alert-success").unwrap())
             .next()
+            .is_some()
         {
             return Ok(());
         }
@@ -479,7 +480,7 @@ impl AtCoder {
             (
                 task_screen_name.to_owned(),
                 language_id.to_owned(),
-                language_name.to_owned(),
+                language_name,
                 csrf_token.to_owned(),
             )
         };
