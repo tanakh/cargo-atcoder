@@ -38,7 +38,7 @@ lazy_static::lazy_static! {
 
 pub fn read_config() -> Result<Config> {
     let config_path = dirs::config_dir()
-        .ok_or(anyhow!("Failed to get config directory"))?
+        .ok_or_else(|| anyhow!("Failed to get config directory"))?
         .join("cargo-atcoder.toml");
 
     if !config_path.exists() {

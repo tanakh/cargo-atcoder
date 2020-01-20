@@ -56,7 +56,7 @@ fn new_project(opt: NewOpt) -> Result<()> {
 
     let dir = Path::new(&opt.contest_id);
     if dir.is_dir() || dir.is_file() {
-        Err(anyhow!("Directory {} already exists", dir.display()))?;
+        return Err(anyhow!("Directory {} already exists", dir.display()));
     }
 
     let stat = Command::new("cargo")
@@ -64,7 +64,7 @@ fn new_project(opt: NewOpt) -> Result<()> {
         .arg(&opt.contest_id)
         .status()?;
     if !stat.success() {
-        Err(anyhow!("Failed to create project: {}", &opt.contest_id))?;
+        return Err(anyhow!("Failed to create project: {}", &opt.contest_id));
     }
 
     // fs::write(dir.join("rust-toolchain"), &config.rustc_version)?;
@@ -76,7 +76,7 @@ fn new_project(opt: NewOpt) -> Result<()> {
         fs::write(
             dir.join("src")
                 .join("bin")
-                .join(format!("{}.rs", ('a' as u8 + i as u8) as char)),
+                .join(format!("{}.rs", (b'a' + i as u8) as char)),
             &config.project.template,
         )?;
     }
@@ -150,10 +150,9 @@ async fn test(opt: TestOpt) -> Result<()> {
     let contest_id = get_cur_contest_id()?;
     let contest_info = atc.contest_info(&contest_id).await?;
 
-    let problem = contest_info.problem(&problem_id).ok_or(anyhow!(
-        "Problem `{}` is not contained in this contest",
-        &problem_id
-    ))?;
+    let problem = contest_info
+        .problem(&problem_id)
+        .ok_or_else(|| anyhow!("Problem `{}` is not contained in this contest", &problem_id))?;
 
     if opt.custom {
         return test_custom(&problem_id, opt.release);
@@ -162,31 +161,29 @@ async fn test(opt: TestOpt) -> Result<()> {
     let test_cases = atc.test_cases(&problem.url).await?;
 
     for &cn in opt.case_num.iter() {
-        if cn <= 0 || cn > test_cases.len() {
-            Err(anyhow!(
+        if cn == 0 || cn > test_cases.len() {
+            return Err(anyhow!(
                 "Case num {} is not found in problem {} samples",
                 cn,
                 problem_id
-            ))?;
+            ));
         }
     }
 
     let mut tcs = vec![];
     for (i, tc) in test_cases.into_iter().enumerate() {
-        if opt.case_num.len() == 0 || opt.case_num.contains(&(i + 1)) {
+        if opt.case_num.is_empty() || opt.case_num.contains(&(i + 1)) {
             tcs.push((i, tc));
         }
     }
 
     let passed = test_samples(&problem_id, &tcs, opt.release, opt.verbose)?;
-    if passed {
-        if opt.submit {
-            let source = fs::read(format!("src/bin/{}.rs", problem_id))
-                .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
+    if passed && opt.submit {
+        let source = fs::read(format!("src/bin/{}.rs", problem_id))
+            .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
 
-            atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
-                .await?;
-        }
+        atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
+            .await?;
     }
 
     Ok(())
@@ -255,7 +252,7 @@ fn test_samples(
             fails.push((i, true, output));
         } else {
             println!("test sample {} ... {}", i + 1, green.apply_to("ok"));
-            if verbose && output.stderr.len() > 0 {
+            if verbose && !output.stderr.is_empty() {
                 println!("stderr:");
                 print_lines(&String::from_utf8_lossy(&output.stderr));
                 println!();
@@ -277,13 +274,13 @@ fn test_samples(
             );
             println!();
 
-            if output.stdout.len() > 0 {
+            if !output.stdout.is_empty() {
                 println!("stdout:");
                 print_lines(&String::from_utf8_lossy(&output.stdout));
                 println!();
             }
 
-            if output.stderr.len() > 0 {
+            if !output.stderr.is_empty() {
                 println!("stderr:");
                 print_lines(&String::from_utf8_lossy(&output.stderr));
                 println!();
@@ -303,7 +300,7 @@ fn test_samples(
             print_lines(&String::from_utf8_lossy(&output.stdout));
             println!();
 
-            if output.stderr.len() > 0 {
+            if !output.stderr.is_empty() {
                 println!("stderr:");
                 print_lines(&String::from_utf8_lossy(&output.stderr));
                 println!();
@@ -314,7 +311,7 @@ fn test_samples(
     if fail_num == 0 {
         println!("test_result: {}", green.apply_to("ok"));
         println!();
-        return Ok(true);
+        Ok(true)
     } else {
         println!(
             "test result: {}. {} passed; {} failed",
@@ -336,7 +333,7 @@ fn test_custom(problem_id: &str, release: bool) -> Result<()> {
         .status()?;
 
     if !build_status.success() {
-        Err(anyhow!("Build failed"))?;
+        return Err(anyhow!("Build failed"));
     }
 
     println!("input test case:");
@@ -363,13 +360,13 @@ fn test_custom(problem_id: &str, release: bool) -> Result<()> {
         );
         println!();
 
-        if output.stdout.len() > 0 {
+        if !output.stdout.is_empty() {
             println!("stdout:");
             print_lines(&String::from_utf8_lossy(&output.stdout));
             println!();
         }
 
-        if output.stderr.len() > 0 {
+        if !output.stderr.is_empty() {
             println!("stderr:");
             print_lines(&String::from_utf8_lossy(&output.stderr));
             println!();
@@ -379,7 +376,7 @@ fn test_custom(problem_id: &str, release: bool) -> Result<()> {
         print_lines(&String::from_utf8_lossy(&output.stdout));
         println!();
 
-        if output.stderr.len() > 0 {
+        if !output.stderr.is_empty() {
             println!("stderr:");
             print_lines(&String::from_utf8_lossy(&output.stderr));
             println!();
@@ -423,10 +420,9 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     let contest_id = get_cur_contest_id()?;
     let problem_id = opt.problem_id;
     let contest_info = atc.contest_info(&contest_id).await?;
-    let problem = contest_info.problem(&problem_id).ok_or(anyhow!(
-        "Problem `{}` is not contained in this contest",
-        &problem_id
-    ))?;
+    let problem = contest_info
+        .problem(&problem_id)
+        .ok_or_else(|| anyhow!("Problem `{}` is not contained in this contest", &problem_id))?;
 
     let test_passed = if opt.skip_test {
         true
@@ -481,7 +477,7 @@ fn gen_binary_source(problem_id: &str, config: &Config) -> Result<Vec<u8>> {
         .status()?;
 
     if !status.success() {
-        Err(anyhow!("Build failed"))?;
+        return Err(anyhow!("Build failed"));
     }
 
     let binary_file = format!("target/{}/release/{}", target, problem_id);
@@ -495,7 +491,7 @@ fn gen_binary_source(problem_id: &str, config: &Config) -> Result<Vec<u8>> {
     println!("Stripped binary size: {}", size);
 
     if !status.success() {
-        Err(anyhow!("strip failed"))?;
+        return Err(anyhow!("strip failed"));
     }
 
     let mut handlebars = Handlebars::new();
