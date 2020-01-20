@@ -17,6 +17,12 @@ jobs:
         default: true
         profile: default
 
+    - name: Rustfmt
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: -- --check
+
     - name: Build
       uses: actions-rs/cargo@v1
       with:
