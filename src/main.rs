@@ -507,7 +507,7 @@ fn gen_binary_source(problem_id: &str, config: &Config) -> Result<Vec<u8>> {
     let bin = fs::read(&binary_file)?;
 
     let mut data = BTreeMap::new();
-    data.insert("BINARY", base64::encode(&bin));
+    data.insert("BINARY", data_encoding::BASE64.encode(&bin));
     data.insert("SOURCE_CODE", source_code);
     data.insert(
         "HASH",

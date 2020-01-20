@@ -8,7 +8,6 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0"
-base64 = "0.11"
 bytesize = "1.0"
 chrono = "0.4"
 console = "0.9"
