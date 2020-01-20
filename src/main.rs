@@ -853,6 +853,7 @@ async fn status() -> Result<()> {
 }
 
 #[derive(StructOpt)]
+#[structopt(bin_name("cargo"))]
 enum Opt {
     #[structopt(name = "atcoder")]
     AtCoder(OptAtCoder),
