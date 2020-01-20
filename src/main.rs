@@ -408,6 +408,9 @@ struct SubmitOpt {
     /// Submit source code directory (overwrite config)
     #[structopt(long, conflicts_with = "bin")]
     source: bool,
+    /// Do no use upx unless available
+    #[structopt(long)]
+    no_upx: bool,
     /// Use --release on pre-test (submission always uses --release)
     #[structopt(long)]
     release: bool,
@@ -447,7 +450,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
             .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?
     } else {
         println!("Submitting via binary...");
-        gen_binary_source(&problem_id, &config)?
+        gen_binary_source(&problem_id, &config, opt.no_upx)?
     };
 
     atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
@@ -461,11 +464,14 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     Ok(())
 }
 
-fn gen_binary_source(problem_id: &str, config: &Config) -> Result<Vec<u8>> {
+fn gen_binary_source(problem_id: &str, config: &Config, no_upx: bool) -> Result<Vec<u8>> {
     let source_code = fs::read_to_string(format!("src/bin/{}.rs", problem_id))
         .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
 
     let target = &config.profile.target;
+    let binary_file = format!("target/{}/release/{}", target, problem_id);
+
+    let _ = fs::remove_dir_all(format!("target/{}/release", target));
 
     let status = Command::new("cargo")
         .arg("build")
@@ -480,42 +486,57 @@ fn gen_binary_source(problem_id: &str, config: &Config) -> Result<Vec<u8>> {
         return Err(anyhow!("Build failed"));
     }
 
-    let binary_file = format!("target/{}/release/{}", target, problem_id);
-
     let size = ByteSize::b(get_file_size(&binary_file)?);
     println!("Built binary size: {}", size);
 
     let status = Command::new("strip").arg("-s").arg(&binary_file).status()?;
-
-    let size = ByteSize::b(get_file_size(&binary_file)?);
-    println!("Stripped binary size: {}", size);
-
     if !status.success() {
         return Err(anyhow!("strip failed"));
     }
 
-    let mut handlebars = Handlebars::new();
-    handlebars.register_escape_fn(|s: &str| s.to_owned());
+    let size = ByteSize::b(get_file_size(&binary_file)?);
+    println!("Stripped binary size: {}", size);
 
-    let templ = include_str!("../data/binary_runner.rs.txt");
-    handlebars.register_template_string("binary_runner", templ)?;
+    if let Ok(upx_path) = which::which("upx") {
+        if !no_upx {
+            println!("upx found. Use upx to compress binary.");
+            let status = Command::new(upx_path)
+                .arg("--best")
+                .arg("-qq")
+                .arg(&binary_file)
+                .status()?;
+            if !status.success() {
+                return Err(anyhow!("upx failed"));
+            }
+            let size = ByteSize::b(get_file_size(&binary_file)?);
+            println!("Compressed binary size: {}", size);
+        }
+    }
 
-    let bin = fs::read(&binary_file)?;
+    let code = {
+        let mut handlebars = Handlebars::new();
+        handlebars.register_escape_fn(|s: &str| s.to_owned());
 
-    let mut data = BTreeMap::new();
-    data.insert("BINARY", data_encoding::BASE64.encode(&bin));
-    data.insert("SOURCE_CODE", source_code);
-    data.insert(
-        "HASH",
-        data_encoding::HEXUPPER.encode(&sha2::Sha256::digest(&bin))[0..8].to_owned(),
-    );
+        let templ = include_str!("../data/binary_runner.rs.txt");
+        handlebars.register_template_string("binary_runner", templ)?;
 
-    let code = handlebars.render("binary_runner", &data)?.trim().to_owned();
+        let bin = fs::read(&binary_file)?;
+
+        let mut data = BTreeMap::new();
+        data.insert("BINARY", data_encoding::BASE64.encode(&bin));
+        data.insert("SOURCE_CODE", source_code);
+        data.insert(
+            "HASH",
+            data_encoding::HEXUPPER.encode(&sha2::Sha256::digest(&bin))[0..8].to_owned(),
+        );
+
+        handlebars.render("binary_runner", &data)?.trim().to_owned()
+    };
 
     let size = ByteSize::b(code.len() as u64);
     println!("Bundled code size: {}", size);
 
-    let size_limit = ByteSize::kb(512);
+    let size_limit = ByteSize::kib(512);
 
     if size > size_limit {
         println!("Code size limit exceeded: larger than {}", size_limit);

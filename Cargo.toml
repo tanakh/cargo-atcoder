@@ -29,3 +29,4 @@ sha2 = "0.8"
 structopt = "0.3"
 tokio = { version = "0.2", features = ["macros", "time"] }
 toml = "0.5"
+which = "3.1"
