@@ -509,6 +509,10 @@ fn gen_binary_source(problem_id: &str, config: &Config) -> Result<Vec<u8>> {
     let mut data = BTreeMap::new();
     data.insert("BINARY", base64::encode(&bin));
     data.insert("SOURCE_CODE", source_code);
+    data.insert(
+        "HASH",
+        data_encoding::HEXUPPER.encode(&sha2::Sha256::digest(&bin))[0..8].to_owned(),
+    );
 
     let code = handlebars.render("binary_runner", &data)?.trim().to_owned();
 
