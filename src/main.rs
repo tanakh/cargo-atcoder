@@ -4,6 +4,7 @@ use chrono::{DateTime, Local};
 use console::Style;
 use futures::{future::FutureExt, select};
 use handlebars::Handlebars;
+use if_chain::if_chain;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use sha2::digest::Digest;
@@ -44,16 +45,36 @@ struct NewOpt {
     /// Contest ID (e.g. abc123)
     contest_id: String,
 
-    /// File stems (./src/bin/{}.rs). The default is ["a", "b", "c", "d", "e", "f"]
+    /// Create src/bin/<NAME>.rs without retrieving actual problem IDs
     #[structopt(short, long, value_name("NAME"))]
     bins: Vec<String>,
 }
 
-fn new_project(opt: NewOpt) -> Result<()> {
+async fn new_project(opt: NewOpt) -> Result<()> {
     let config = read_config()?;
 
     let bins = if opt.bins.is_empty() {
-        (b'a'..=b'f').map(|c| (c as char).to_string()).collect()
+        let atc = AtCoder::new(&session_file())?;
+
+        match atc.contest_info(&opt.contest_id).await {
+            Ok(info) => info.problem_ids_lowercase(),
+            Err(err) => if_chain! {
+                if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>();
+                if reqwest_err.status().map(Into::into) == Some(404);
+                then {
+                    atc.problem_ids_of_rated_contest(&opt.contest_id)
+                        .await?
+                        .map(|ss| ss.iter().map(|s| s.to_lowercase()).collect())
+                        .ok_or_else(|| {
+                            err.context(
+                                "could not find problem names. please specify names with `--bins`",
+                            )
+                        })?
+                } else {
+                    return Err(err);
+                }
+            },
+        }
     } else {
         opt.bins
     };
@@ -912,7 +933,7 @@ async fn main() -> Result<()> {
 
     use OptAtCoder::*;
     match opt {
-        New(opt) => new_project(opt),
+        New(opt) => new_project(opt).await,
         Login => login().await,
         // Logout => unimplemented!(),
         ClearSession => clear_session(),
