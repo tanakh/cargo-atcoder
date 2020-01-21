@@ -44,15 +44,19 @@ struct NewOpt {
     /// Contest ID (e.g. abc123)
     contest_id: String,
 
-    /// Number of problems
-    #[structopt(short, long, default_value = "6")]
-    num_problems: usize,
+    /// File stems (./src/bin/{}.rs). The default is ["a", "b", "c", "d", "e", "f"]
+    #[structopt(short, long, value_name("NAME"))]
+    bins: Vec<String>,
 }
 
 fn new_project(opt: NewOpt) -> Result<()> {
-    assert!(opt.num_problems <= 26);
-
     let config = read_config()?;
+
+    let bins = if opt.bins.is_empty() {
+        (b'a'..=b'f').map(|c| (c as char).to_string()).collect()
+    } else {
+        opt.bins
+    };
 
     let dir = Path::new(&opt.contest_id);
     if dir.is_dir() || dir.is_file() {
@@ -72,11 +76,9 @@ fn new_project(opt: NewOpt) -> Result<()> {
     fs::remove_file(dir.join("src").join("main.rs"))?;
     fs::create_dir(dir.join("src").join("bin"))?;
 
-    for i in 0..opt.num_problems {
+    for bin in bins {
         fs::write(
-            dir.join("src")
-                .join("bin")
-                .join(format!("{}.rs", (b'a' + i as u8) as char)),
+            dir.join("src").join("bin").join(bin).with_extension("rs"),
             &config.project.template,
         )?;
     }
