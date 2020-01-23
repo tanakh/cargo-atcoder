@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
+use itertools::Itertools as _;
 use regex::Regex;
 use scraper::{Html, Selector};
 use std::fs;
@@ -38,6 +39,10 @@ impl ContestInfo {
         self.problems
             .iter()
             .find(|p| p.id.to_lowercase() == id.to_lowercase())
+    }
+
+    pub fn problem_ids_lowercase(&self) -> Vec<String> {
+        self.problems.iter().map(|p| p.id.to_lowercase()).collect()
     }
 }
 
@@ -315,6 +320,42 @@ impl AtCoder {
         }
 
         Err(anyhow!("Login failed: Unknown error"))
+    }
+
+    pub async fn problem_ids_of_rated_contest(
+        &self,
+        contest_id: &str,
+    ) -> Result<Option<Vec<String>>> {
+        let t = format!("{}/contests/{}", ATCODER_ENDPOINT, contest_id);
+        let doc = http_get(&self.client, &t).await?;
+
+        Html::parse_document(&doc)
+            .select(&Selector::parse("#contest-statement > .lang > .lang-ja table").unwrap())
+            .filter(|table| {
+                table
+                    .select(&Selector::parse("thead > tr > th").unwrap())
+                    .flat_map(|r| r.text())
+                    .collect::<Vec<_>>()
+                    == ["Task", "Score"]
+            })
+            .exactly_one()
+            .ok()
+            .map(|table| {
+                table
+                    .select(&Selector::parse("tbody > tr").unwrap())
+                    .map(|tr| {
+                        let text = tr
+                            .select(&Selector::parse("td").unwrap())
+                            .flat_map(|r| r.text())
+                            .collect::<Vec<_>>();
+                        match text.len() {
+                            2 => Ok(text[0].to_owned()),
+                            _ => Err(anyhow!("could not parse the table")),
+                        }
+                    })
+                    .collect()
+            })
+            .transpose()
     }
 
     pub async fn contest_info(&self, contest_id: &str) -> Result<ContestInfo> {

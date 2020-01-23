@@ -29,16 +29,39 @@ $ cargo atcoder new <contest-name>
 
 例えば、ABC152 (<https://atcoder.jp/contests/abc152>) なら、`abc152`になるので、
 
-```
+```console
 $ cargo atcoder new abc152
+     Created binary (application) `abc152` package
 ```
 
 これで`abc152`というディレクトリが作られて、そこにcargoのプロジェクトが作られます。
 
-問題数を指定することもできます（デフォルトでは6）。指定した問題数分のソースファイルが作成されます。
+```console
+$ tree ./abc152
+./abc152
+├── Cargo.toml
+└── src
+    └── bin
+        ├── a.rs
+        ├── b.rs
+        ├── c.rs
+        ├── d.rs
+        ├── e.rs
+        └── f.rs
+
+2 directories, 7 files
+```
+
+ソースファイルは
+
+1. コンテストが始まっていて参加している場合、問題一覧
+2. ratedの場合、コンテストのトップページの配点表
+
+から得られた問題のアルファベットに従い作成されます。
+開始前のunratedなコンテストではfile stemを`-b`, `--bins`で指定してください。
 
 ```
-$ cargo atcoder new abc152 6
+$ cargo atcoder new <contest-name> -b {a..f}
 ```
 
 ## 解答サブミット

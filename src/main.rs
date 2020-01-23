@@ -4,6 +4,7 @@ use chrono::{DateTime, Local};
 use console::Style;
 use futures::{future::FutureExt, select};
 use handlebars::Handlebars;
+use if_chain::if_chain;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use sha2::digest::Digest;
@@ -44,15 +45,39 @@ struct NewOpt {
     /// Contest ID (e.g. abc123)
     contest_id: String,
 
-    /// Number of problems
-    #[structopt(short, long, default_value = "6")]
-    num_problems: usize,
+    /// Create src/bin/<NAME>.rs without retrieving actual problem IDs
+    #[structopt(short, long, value_name("NAME"))]
+    bins: Vec<String>,
 }
 
-fn new_project(opt: NewOpt) -> Result<()> {
-    assert!(opt.num_problems <= 26);
-
+async fn new_project(opt: NewOpt) -> Result<()> {
     let config = read_config()?;
+
+    let bins = if opt.bins.is_empty() {
+        let atc = AtCoder::new(&session_file())?;
+
+        match atc.contest_info(&opt.contest_id).await {
+            Ok(info) => info.problem_ids_lowercase(),
+            Err(err) => if_chain! {
+                if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>();
+                if reqwest_err.status().map(Into::into) == Some(404);
+                then {
+                    atc.problem_ids_of_rated_contest(&opt.contest_id)
+                        .await?
+                        .map(|ss| ss.iter().map(|s| s.to_lowercase()).collect())
+                        .ok_or_else(|| {
+                            err.context(
+                                "could not find problem names. please specify names with `--bins`",
+                            )
+                        })?
+                } else {
+                    return Err(err);
+                }
+            },
+        }
+    } else {
+        opt.bins
+    };
 
     let dir = Path::new(&opt.contest_id);
     if dir.is_dir() || dir.is_file() {
@@ -72,11 +97,9 @@ fn new_project(opt: NewOpt) -> Result<()> {
     fs::remove_file(dir.join("src").join("main.rs"))?;
     fs::create_dir(dir.join("src").join("bin"))?;
 
-    for i in 0..opt.num_problems {
+    for bin in bins {
         fs::write(
-            dir.join("src")
-                .join("bin")
-                .join(format!("{}.rs", (b'a' + i as u8) as char)),
+            dir.join("src").join("bin").join(bin).with_extension("rs"),
             &config.project.template,
         )?;
     }
@@ -910,7 +933,7 @@ async fn main() -> Result<()> {
 
     use OptAtCoder::*;
     match opt {
-        New(opt) => new_project(opt),
+        New(opt) => new_project(opt).await,
         Login => login().await,
         // Logout => unimplemented!(),
         ClearSession => clear_session(),
