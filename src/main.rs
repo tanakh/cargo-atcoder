@@ -895,16 +895,20 @@ async fn watch_submission_status(
         ret
     });
 
-    // select! {
-    //     res = join_fut.fuse() => {
-    //         res.map_err(|e| e.into())
-    //     }
-    //     res = update_fut.fuse() => {
-    //         res?
-    //     }
-    // }
-
     Ok(join!(join_fut, update_fut).1??)
+}
+
+#[derive(StructOpt)]
+struct GenBinaryOpt {
+    /// Problem ID to make binary
+    problem_id: String,
+    /// Do not use UPX even if it is available
+    #[structopt(long)]
+    no_upx: bool,
+}
+
+fn gen_binary(opt: GenBinaryOpt) -> Result<()> {
+    unimplemented!()
 }
 
 #[derive(StructOpt)]
@@ -1069,6 +1073,8 @@ enum OptAtCoder {
     Submit(SubmitOpt),
     /// Show submission result deatil
     Result(ResultOpt),
+    /// Generate rustified binary
+    GenBinary(GenBinaryOpt),
     /// Show submission status
     Status,
     /// [WIP] Watch filesystem for automatic submission
@@ -1091,6 +1097,7 @@ async fn main() -> Result<()> {
         Test(opt) => test(opt).await,
         Submit(opt) => submit(opt).await,
         Result(opt) => result(opt).await,
+        GenBinary(opt) => gen_binary(opt),
         Status => status().await,
         Watch => watch().await,
     }
