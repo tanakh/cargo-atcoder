@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use bytesize::ByteSize;
 use chrono::{DateTime, Local};
 use console::Style;
-use futures::{future::FutureExt, select};
+use futures::{future::FutureExt, join, select};
 use handlebars::Handlebars;
 use if_chain::if_chain;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -481,8 +481,20 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     println!();
 
     println!("Fetching submission result...");
-    watch_submission_status(Arc::new(atc), &contest_id, true).await?;
+    let atc = Arc::new(atc);
+    let last_id = watch_submission_status(Arc::clone(&atc), &contest_id, true).await?;
     println!();
+
+    if let Some(last_id) = last_id {
+        let res = atc.submission_status_full(&contest_id, last_id).await?;
+        if let Some(code) = res.result.status.result_code() {
+            if !code.accepted() {
+                println!("Submission detail:");
+                println!();
+                print_full_result(&res, false)?;
+            }
+        }
+    }
 
     Ok(())
 }
@@ -719,7 +731,7 @@ async fn watch_submission_status(
     atc: Arc<AtCoder>,
     contest_id: &str,
     recent_only: bool,
-) -> Result<()> {
+) -> Result<Option<usize>> {
     let config = read_config()?;
     let cur_time = chrono::offset::Utc::now();
 
@@ -754,6 +766,8 @@ async fn watch_submission_status(
         let green = Style::new().green();
         let red = Style::new().red();
 
+        let mut last_id;
+
         loop {
             let results = atc.submission_status(&contest_id).await?;
             let mut results = if !recent_only {
@@ -765,6 +779,8 @@ async fn watch_submission_status(
                     .collect::<Vec<_>>()
             };
             results.sort_by_key(|r| r.date);
+
+            last_id = results.iter().last().map(|r| r.id);
 
             let mut done = true;
 
@@ -873,19 +889,151 @@ async fn watch_submission_status(
             }
         }
 
-        let ret: Result<()> = Ok(());
+        complete_.store(true, Ordering::Relaxed);
+
+        let ret: Result<Option<usize>> = Ok(last_id);
         ret
     });
 
-    select! {
-        res = join_fut.fuse() => {
-            res.map_err(|e| e.into())
+    // select! {
+    //     res = join_fut.fuse() => {
+    //         res.map_err(|e| e.into())
+    //     }
+    //     res = update_fut.fuse() => {
+    //         res?
+    //     }
+    // }
+
+    Ok(join!(join_fut, update_fut).1??)
+}
+
+#[derive(StructOpt)]
+struct ResultOpt {
+    /// submission ID
+    submission_id: usize,
+    /// Use verbose output
+    #[structopt(long, short)]
+    verbose: bool,
+}
+
+async fn result(opt: ResultOpt) -> Result<()> {
+    let atc = AtCoder::new(&session_file())?;
+    let contest_id = get_cur_contest_id()?;
+    let res = atc
+        .submission_status_full(&contest_id, opt.submission_id)
+        .await?;
+
+    print_full_result(&res, opt.verbose)
+}
+
+fn print_full_result(res: &FullSubmissionResult, verbose: bool) -> Result<()> {
+    let green = Style::new().green();
+    let red = Style::new().red();
+    let cyan = Style::new().cyan();
+
+    println!("Submission ID: {}", cyan.apply_to(res.result.id));
+    println!(
+        "Date:          {}",
+        DateTime::<Local>::from(res.result.date).format("%Y-%m-%d %H:%M:%S")
+    );
+    println!("Problem:       {}", res.result.problem_name);
+    println!("Language:      {}", res.result.language);
+    println!("Score:         {}", res.result.score);
+    println!("Code length:   {}", res.result.code_length);
+
+    let stat = if let Some(code) = res.result.status.result_code() {
+        let msg = code.long_msg();
+        format!(
+            "{}",
+            if code.accepted() {
+                green.apply_to(&msg)
+            } else {
+                red.apply_to(&msg)
+            },
+        )
+    } else {
+        "N/A".to_string()
+    };
+
+    println!("Result:        {}", stat);
+    println!(
+        "Runtime:       {}",
+        res.result
+            .run_time
+            .as_ref()
+            .map(|r| r.as_str())
+            .unwrap_or("N/A")
+    );
+    println!(
+        "Memory:        {}",
+        res.result
+            .memory
+            .as_ref()
+            .map(|r| r.as_str())
+            .unwrap_or("N/A")
+    );
+
+    if res
+        .result
+        .status
+        .result_code()
+        .map(|c| !c.accepted())
+        .unwrap_or(false)
+        && !res.cases.is_empty()
+    {
+        let mut mm = BTreeMap::<&ResultCode, usize>::new();
+        for case in res.cases.iter() {
+            if let Some(code) = case.result.result_code() {
+                *mm.entry(code).or_default() += 1;
+            }
         }
-        res = update_fut.fuse() => {
-            complete_.store(true, Ordering::Relaxed);
-            res?
+
+        println!();
+        println!("Breakdown:");
+
+        for (code, count) in mm {
+            let msg = format!("{:25}", code.long_msg());
+            let msg = format!(
+                "{}",
+                if code.accepted() {
+                    green.apply_to(&msg)
+                } else {
+                    red.apply_to(&msg)
+                },
+            );
+
+            println!("    * {}: {}", msg, count);
+        }
+
+        if verbose {
+            println!();
+            println!("All result:");
+
+            for case in res.cases.iter() {
+                let stat = if let Some(code) = case.result.result_code() {
+                    let msg = format!("{:15}", code.long_msg());
+                    format!(
+                        "{}",
+                        if code.accepted() {
+                            green.apply_to(&msg)
+                        } else {
+                            red.apply_to(&msg)
+                        },
+                    )
+                } else {
+                    "N/A".to_string()
+                };
+                println!(
+                    "    * {:20} {}, {}, {}",
+                    case.name.clone() + ":",
+                    stat,
+                    case.run_time.clone().unwrap_or("N/A".to_string()),
+                    case.memory.clone().unwrap_or("N/A".to_string())
+                );
+            }
         }
     }
+    Ok(())
 }
 
 async fn status() -> Result<()> {
@@ -919,10 +1067,12 @@ enum OptAtCoder {
     Test(TestOpt),
     /// Submit solution
     Submit(SubmitOpt),
-    /// [WIP] Watch filesystem for automatic submission
-    Watch,
+    /// Show submission result deatil
+    Result(ResultOpt),
     /// Show submission status
     Status,
+    /// [WIP] Watch filesystem for automatic submission
+    Watch,
 }
 
 #[tokio::main]
@@ -940,7 +1090,8 @@ async fn main() -> Result<()> {
         Info => info().await,
         Test(opt) => test(opt).await,
         Submit(opt) => submit(opt).await,
-        Watch => watch().await,
+        Result(opt) => result(opt).await,
         Status => status().await,
+        Watch => watch().await,
     }
 }

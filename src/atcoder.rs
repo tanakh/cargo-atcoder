@@ -70,6 +70,8 @@ pub struct FullSubmissionResult {
 pub struct CaseResult {
     pub name: String,
     pub result: StatusCode,
+    pub run_time: Option<String>,
+    pub memory: Option<String>,
 }
 
 #[derive(Debug)]
@@ -86,6 +88,13 @@ impl StatusCode {
             _ => false,
         }
     }
+
+    pub fn result_code(&self) -> Option<&ResultCode> {
+        match self {
+            StatusCode::Done(code) => Some(code),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -94,16 +103,16 @@ pub enum WaitingCode {
     WaitingForRejudge,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ResultCode {
-    CompileError,
-    MemoryLimitExceeded,
-    TimeLimitExceeded,
-    RuntimeError,
-    OutputLimitExceeded,
-    InternalError,
-    WrongAnswer,
     Accepted,
+    WrongAnswer,
+    TimeLimitExceeded,
+    MemoryLimitExceeded,
+    OutputLimitExceeded,
+    RuntimeError,
+    CompileError,
+    InternalError,
     Unknown(String),
 }
 
@@ -635,6 +644,153 @@ impl AtCoder {
 
             ret.push(res.unwrap());
         }
+
+        Ok(ret)
+    }
+
+    pub async fn submission_status_full(
+        &self,
+        contest_id: &str,
+        submission_id: usize,
+    ) -> Result<FullSubmissionResult> {
+        self.check_login().await?;
+        let t = format!(
+            "{}/contests/{}/submissions/{}",
+            ATCODER_ENDPOINT, contest_id, submission_id,
+        );
+        let con = http_get(&self.client, &t).await?;
+        let doc = Html::parse_document(&con);
+
+        // <table class="table table-bordered table-striped">
+        // <tr>
+        //     <th class="col-sm-4">提出日時</th>
+        //     <td class="text-center"><time class='fixtime fixtime-second'>2020-01-19 21:53:37+0900</time></td>
+        // </tr>
+        // <tr>
+        //     <th>問題</th>
+        //     <td class="text-center"><a href='/contests/abc152/tasks/abc152_f'>F - Tree and Constraints</a></td>
+        // </tr>
+        // <tr>
+        //     <th>ユーザ</th>
+        //     <td class="text-center"><a href='/users/tanakh'>tanakh</a> <a href='/contests/abc152/submissions?f.User=tanakh'><span class='glyphicon glyphicon-search black' aria-hidden='true' data-toggle='tooltip' title='tanakhさんの提出を見る'></span></a></td>
+        // </tr>
+        // <tr>
+        //     <th>言語</th>
+        //     <td class="text-center">Rust (1.15.1)</td>
+        // </tr>
+        // <tr>
+        //     <th>得点</th>
+        //     <td class="text-center">0</td>
+        // </tr>
+        // <tr>
+        //     <th>コード長</th>
+        //     <td class="text-center">321502 Byte</td>
+        // </tr>
+        // <tr>
+        //     <th>結果</th>
+        //     <td id="judge-status" class="text-center"><span class='label label-warning' aria-hidden='true' data-toggle='tooltip' data-placement='top' title="不正解">WA</span></td>
+        // </tr>
+        //     <tr>
+        //         <th>実行時間</th>
+        //         <td class="text-center">4215 ms</td>
+        //     </tr>
+        //     <tr>
+        //         <th>メモリ</th>
+        //         <td class="text-center">8828 KB</td>
+        //     </tr>
+        // </table>
+
+        let result = (|| -> Option<SubmissionResult> {
+            let sel = Selector::parse("table tr th+td").unwrap();
+
+            let mut it = doc.select(&sel);
+
+            let date = it.next()?.first_child()?.first_child()?.value().as_text()?;
+            let date = chrono::DateTime::parse_from_str(date.trim(), "%Y-%m-%d %H:%M:%S%z")
+                .ok()?
+                .into();
+            let problem_name = it
+                .next()?
+                .first_child()?
+                .first_child()?
+                .value()
+                .as_text()?
+                .trim()
+                .to_owned();
+            let user = it.next()?.inner_html().trim().to_owned();
+            let language = it.next()?.inner_html().trim().to_owned();
+            let score: i64 = it.next()?.inner_html().trim().to_owned().parse().ok()?;
+            let code_length = it.next()?.inner_html().trim().to_owned();
+            let status =
+                StatusCode::from_str(it.next()?.first_child()?.first_child()?.value().as_text()?)?;
+
+            let resource = (|| {
+                let run_time = it.next()?.first_child()?.value().as_text()?.to_string();
+                let memory = it.next()?.first_child()?.value().as_text()?.to_string();
+                Some((run_time, memory))
+            })();
+
+            Some(SubmissionResult {
+                id: submission_id,
+                date,
+                problem_name,
+                user,
+                language,
+                score,
+                code_length,
+                status,
+                run_time: resource.as_ref().map(|r| r.0.clone()),
+                memory: resource.map(|r| r.1),
+            })
+        })()
+        .ok_or_else(|| anyhow!("Failed to parse result"))?;
+
+        // <table class="table table-bordered table-striped th-center">
+        // <thead>
+        // <tr>
+        //     <th>ケース名</th>
+        //     <th>結果</th>
+        //     <th>実行時間</th>
+        //     <th>メモリ</th>
+        // </tr>
+        // </thead>
+        // <tbody>
+        // <tr>
+        //     <td class="text-center">dense_01.txt</td>
+        //         <td class="text-center"><span class='label label-success' aria-hidden='true' data-toggle='tooltip' data-placement='top' title="正解">AC</span></td>
+        //         <td class="text-right">705 ms</td>
+        //         <td class="text-right">8824 KB</td>
+
+        // </tr>
+
+        let sel_td = Selector::parse("td").unwrap();
+
+        let mut cases = vec![];
+
+        for r in doc.select(&Selector::parse("table tbody tr").unwrap()) {
+            let case = (|| -> Option<CaseResult> {
+                let mut it = r.select(&sel_td);
+                let name = it.next()?.inner_html();
+                let result = StatusCode::from_str(
+                    it.next()?.first_child()?.first_child()?.value().as_text()?,
+                )?;
+                let run_time = it.next()?.inner_html();
+                let memory = it.next()?.inner_html();
+
+                Some(CaseResult {
+                    name,
+                    result,
+                    run_time: Some(run_time),
+                    memory: Some(memory),
+                })
+            })();
+
+            if let Some(case) = case {
+                cases.push(case);
+            }
+        }
+
+        let ret = FullSubmissionResult { result, cases };
 
         Ok(ret)
     }
