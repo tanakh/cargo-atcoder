@@ -42,7 +42,6 @@ pub fn read_config() -> Result<Config> {
         .join("cargo-atcoder.toml");
 
     if !config_path.exists() {
-        dbg!();
         fs::write(&config_path, DEFAULT_CONFIG_STR)?;
         return Ok(DEFAULT_CONFIG.clone());
     }
