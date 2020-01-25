@@ -1029,8 +1029,8 @@ fn print_full_result(res: &FullSubmissionResult, verbose: bool) -> Result<()> {
                     "    * {:20} {}, {}, {}",
                     case.name.clone() + ":",
                     stat,
-                    case.run_time.clone().unwrap_or("N/A".to_string()),
-                    case.memory.clone().unwrap_or("N/A".to_string())
+                    case.run_time.clone().unwrap_or_else(|| "N/A".to_string()),
+                    case.memory.clone().unwrap_or_else(|| "N/A".to_string())
                 );
             }
         }
