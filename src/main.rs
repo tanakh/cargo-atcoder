@@ -908,7 +908,12 @@ struct GenBinaryOpt {
 }
 
 fn gen_binary(opt: GenBinaryOpt) -> Result<()> {
-    unimplemented!()
+    let config = read_config()?;
+    let src = gen_binary_source(&opt.problem_id, &config, opt.no_upx)?;
+    let filename = format!("{}-bin.rs", opt.problem_id);
+    fs::write(&filename, &src)?;
+    println!("Wrote code to `{}`", filename);
+    Ok(())
 }
 
 #[derive(StructOpt)]
