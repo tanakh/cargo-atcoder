@@ -506,8 +506,6 @@ fn gen_binary_source(problem_id: &str, config: &Config, no_upx: bool) -> Result<
     let target = &config.profile.target;
     let binary_file = format!("target/{}/release/{}", target, problem_id);
 
-    let _ = fs::remove_dir_all(format!("target/{}/release", target));
-
     let status = Command::new("cargo")
         .arg("build")
         .arg(format!("--target={}", target))
