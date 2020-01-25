@@ -788,13 +788,6 @@ async fn watch_submission_status(
                 let pb = dat.entry(result.id).or_insert_with(|| {
                     let pb = ProgressBar::new_spinner().with_style(spinner_style.clone());
 
-                    // pb.set_prefix(&format!(
-                    //     "{} | {:20} | {:15} |",
-                    //     DateTime::<Local>::from(result.date).format("%Y-%m-%d %H:%M:%S"),
-                    //     &result.problem_name[0..min(20, result.problem_name.len())],
-                    //     &result.language[0..min(15, result.language.len())],
-                    // ));
-
                     pb.set_prefix(&format!(
                         "{} | {:20} |",
                         DateTime::<Local>::from(result.date).format("%Y-%m-%d %H:%M:%S"),
