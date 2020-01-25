@@ -1,3 +1,5 @@
+![](https://github.com/tanakh/cargo-atcoder/workflows/Rust/badge.svg)
+
 # cargo-atcoder
 Cargo subcommand for AtCoder
 
