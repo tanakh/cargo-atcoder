@@ -1074,7 +1074,7 @@ enum OptAtCoder {
     Test(TestOpt),
     /// Submit solution
     Submit(SubmitOpt),
-    /// Show submission result deatil
+    /// Show submission result detail
     Result(ResultOpt),
     /// Generate rustified binary
     GenBinary(GenBinaryOpt),
