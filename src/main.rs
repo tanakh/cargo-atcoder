@@ -544,6 +544,8 @@ fn gen_binary_source(problem_id: &str, config: &Config, no_upx: bool) -> Result<
             let size = ByteSize::b(get_file_size(&binary_file)?);
             println!("Compressed binary size: {}", size);
         }
+    } else if !no_upx {
+        println!("upx not found. Binary is not compressed.");
     }
 
     let code = {
