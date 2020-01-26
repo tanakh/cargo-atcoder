@@ -50,5 +50,6 @@ pub fn read_config() -> Result<Config> {
 
     let s = fs::read_to_string(&config_path)
         .map_err(|_| anyhow!("Cannot read file: {}", config_path.display()))?;
-    Ok(toml::from_str(&s)?)
+    Ok(toml::from_str(&s)
+        .map_err(|err| anyhow!("Failed to read `{}`: {}", config_path.display(), err))?)
 }
