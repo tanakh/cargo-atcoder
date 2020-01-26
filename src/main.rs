@@ -411,10 +411,8 @@ fn cmp_output(reference: &str, out: &str) -> (bool, Option<FloatError>) {
                     rel_error: rel_error.max(max_error.as_ref().unwrap().rel_error),
                 }
             });
-        } else {
-            if w1 != w2 {
-                return (false, None);
-            }
+        } else if w1 != w2 {
+            return (false, None);
         }
     }
 
