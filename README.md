@@ -83,13 +83,23 @@ $ cargo atcoder submit <problem-id>
 
 設定ファイルで、デフォルトでバイナリを送る設定にしたり、target tripleを設定したりできます。
 
+[UPX](https://upx.github.io/)がインストールされていれば、自動的に使って圧縮します。インストールされていても使わない設定にもできます。
+
+実行例：
+
 ```
 $ cargo atcoder submit a --bin
 ```
 
-実行例：
-
 ![cargo-atcoder-submit](doc/img/cargo-atcoder-submit.gif)
+
+デフォルトでは、なるべくジャッジの環境によらずに動くように、ターゲットとして `x86_64-unknown-linux-musl` を利用するようになっています。インストールされていない場合は、
+
+```
+$ rustup target add x86_64-unknown-linux-musl
+```
+
+でインストール出来ます。
 
 ## その他コマンド
 
@@ -103,6 +113,40 @@ $ cargo atcoder submit a --bin
 ### `cargo atcoder test`
 
 テストケースの実行に特化したコマンドです。テストケースの指定や、verboseな実行ができたりします。
+
+```
+$ cargo atcoder test <problem-id>
+```
+
+`problem-id`の他に何も指定しなければ、問題文のページから入力例を自動的に取得して、全てに対してテストを行います。
+
+```
+$ cargo atcoder test <problem-id> [case-num]...
+```
+
+`case-num` には、`1`、`2`、`3` などの入力例の番号を1つまたは複数指定できます。`-v` を付けるとなんか少し多めに情報が出るかも知れません。
+
+```
+$ cargo atcoder test <problem-id> --custom
+```
+
+`--custom` を付けると、標準入力から入力するモードになります。
+
+### `cargo atcoder gen-binary`
+
+```
+$ cargo atcoder gen-binary <problem-id>
+```
+
+`problem-id` のRustのコードとしてサブミットできるバイナリを生成します。`submit`の`--bin`オプションで生成する物と同じです。
+
+### `cargo atcoder result`
+
+```
+$ cargo atcoder result [FLAGS] <submission-id>
+```
+
+サブミット結果の詳細を表示します。ACじゃなかった場合は結果の内訳、およびカイジされている場合は全テストケースに対する結果を取得して表示します。
 
 ## 設定ファイル
 
