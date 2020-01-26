@@ -11,7 +11,7 @@ use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use regex::Regex;
 use sha2::digest::Digest;
 use std::{
-    cmp::{max, min},
+    cmp::max,
     collections::BTreeMap,
     fs,
     io::Write,
@@ -26,6 +26,7 @@ use std::{
 };
 use structopt::StructOpt;
 use tokio::time::delay_for;
+use unicode_width::UnicodeWidthStr as _;
 
 // use termion::event::{Event, Key};
 // use termion::input::TermRead;
@@ -703,7 +704,7 @@ fn split_lines(s: &str, w: usize) -> String {
         s = b;
     }
 
-    if s.len() > 0 {
+    if !s.is_empty() {
         ret += s;
         ret.push('\n');
     }
@@ -914,10 +915,22 @@ async fn watch_submission_status(
                 let pb = dat.entry(result.id).or_insert_with(|| {
                     let pb = ProgressBar::new_spinner().with_style(spinner_style.clone());
 
+                    let problem_name_head = {
+                        let mut problem_name_head = result.problem_name.clone();
+                        // TODO: `result.problem_name` possibly contains ambiguous width characters such as emoji.
+                        while problem_name_head.width() > 20 {
+                            problem_name_head.pop();
+                        }
+                        for _ in 0..20usize.saturating_sub(problem_name_head.width()) {
+                            problem_name_head.push(' ');
+                        }
+                        problem_name_head
+                    };
+
                     pb.set_prefix(&format!(
-                        "{} | {:20} |",
+                        "{} | {} |",
                         DateTime::<Local>::from(result.date).format("%Y-%m-%d %H:%M:%S"),
-                        &result.problem_name[0..min(20, result.problem_name.len())],
+                        problem_name_head,
                     ));
 
                     (pb, true)
