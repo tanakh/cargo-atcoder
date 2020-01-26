@@ -613,7 +613,7 @@ fn split_lines(s: &str, w: usize) -> String {
         s = b;
     }
 
-    if s.len() > 0 {
+    if !s.is_empty() {
         ret += s;
         ret.push('\n');
     }
