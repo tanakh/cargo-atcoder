@@ -559,7 +559,7 @@ fn gen_binary_source(problem_id: &str, config: &Config, no_upx: bool) -> Result<
 
         let mut data = BTreeMap::new();
         data.insert("BINARY", data_encoding::BASE64.encode(&bin));
-        data.insert("SOURCE_CODE", source_code.trim_right().to_owned());
+        data.insert("SOURCE_CODE", source_code.trim_end().to_owned());
         data.insert(
             "HASH",
             data_encoding::HEXUPPER.encode(&sha2::Sha256::digest(&bin))[0..8].to_owned(),
@@ -895,6 +895,9 @@ async fn watch_submission_status(
 struct GenBinaryOpt {
     /// Problem ID to make binary
     problem_id: String,
+    /// Output filename (default: <problem-id>-bin.rs)
+    #[structopt(long, short)]
+    output: Option<PathBuf>,
     /// Do not use UPX even if it is available
     #[structopt(long)]
     no_upx: bool,
@@ -903,9 +906,12 @@ struct GenBinaryOpt {
 fn gen_binary(opt: GenBinaryOpt) -> Result<()> {
     let config = read_config()?;
     let src = gen_binary_source(&opt.problem_id, &config, opt.no_upx)?;
-    let filename = format!("{}-bin.rs", opt.problem_id);
+    let filename = opt
+        .output
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(format!("{}-bin.rs", opt.problem_id)));
     fs::write(&filename, &src)?;
-    println!("Wrote code to `{}`", filename);
+    println!("Wrote code to `{}`", filename.display());
     Ok(())
 }
 
