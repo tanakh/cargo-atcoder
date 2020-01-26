@@ -605,7 +605,12 @@ fn gen_binary_source(
     let target = &config.profile.target;
     let binary_file = format!("target/{}/release/{}", target, problem_id);
 
-    let status = Command::new("cargo")
+    let program = if config.atcoder.use_cross {
+        "cross"
+    } else {
+        "cargo"
+    };
+    let status = Command::new(program)
         .arg("build")
         .arg(format!("--target={}", target))
         .arg("--release")
