@@ -341,11 +341,11 @@ impl AtCoder {
         Html::parse_document(&doc)
             .select(&Selector::parse("#contest-statement > .lang > .lang-ja table").unwrap())
             .filter(|table| {
-                table
+                let header = table
                     .select(&Selector::parse("thead > tr > th").unwrap())
                     .flat_map(|r| r.text())
-                    .collect::<Vec<_>>()
-                    == ["Task", "Score"]
+                    .collect::<Vec<_>>();
+                header == ["Task", "Score"] || header == ["問題", "点数"]
             })
             .exactly_one()
             .ok()
