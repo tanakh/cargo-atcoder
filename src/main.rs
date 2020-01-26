@@ -559,7 +559,7 @@ fn gen_binary_source(problem_id: &str, config: &Config, no_upx: bool) -> Result<
 
         let mut data = BTreeMap::new();
         data.insert("BINARY", data_encoding::BASE64.encode(&bin));
-        data.insert("SOURCE_CODE", source_code);
+        data.insert("SOURCE_CODE", source_code.trim_right().to_owned());
         data.insert(
             "HASH",
             data_encoding::HEXUPPER.encode(&sha2::Sha256::digest(&bin))[0..8].to_owned(),
