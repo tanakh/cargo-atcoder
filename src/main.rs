@@ -276,7 +276,7 @@ fn test_samples(
         let cmp_res = cmp_output(&stdout, &test_case.output);
         let ferr = if let Some(ferr) = cmp_res.1 {
             format!(
-                " (abs error: {:.3e}, rel error: {:.3e})",
+                " (abs error: {:<10.3e}, rel error: {:<10.3e})",
                 ferr.abs_error, ferr.rel_error
             )
         } else {
@@ -1251,3 +1251,4 @@ async fn main() -> Result<()> {
         Watch => watch().await,
     }
 }
+ 
