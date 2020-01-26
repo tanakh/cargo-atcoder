@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use itertools::Itertools as _;
 use regex::Regex;
-use scraper::{Html, Selector};
+use scraper::{element_ref::ElementRef, Html, Selector};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -429,28 +429,50 @@ impl AtCoder {
 
         let doc = Html::parse_document(&doc);
 
-        let mut inputs = vec![];
-        let mut outputs = vec![];
+        let h3_sel = Selector::parse("h3").unwrap();
+
+        let mut inputs_ja = vec![];
+        let mut outputs_ja = vec![];
+        let mut inputs_en = vec![];
+        let mut outputs_en = vec![];
 
         for r in doc.select(&Selector::parse("h3+pre").unwrap()) {
-            let label = r
-                .prev_sibling()
-                .unwrap()
-                .first_child()
-                .unwrap()
-                .value()
-                .as_text()
-                .unwrap();
+            let p = ElementRef::wrap(r.parent().unwrap()).unwrap();
+            let label = p.select(&h3_sel).next().unwrap().inner_html();
+            // dbg!(r.parent().unwrap().first_child().unwrap().value());
+
+            // let label = r
+            //     .prev_sibling()
+            //     .unwrap()
+            //     .first_child()
+            //     .unwrap()
+            //     .value()
+            //     .as_text()
+            //     .unwrap();
+
+            if label.starts_with("入力例") {
+                inputs_ja.push(r.inner_html().trim().to_owned());
+            }
+            if label.starts_with("出力例") {
+                outputs_ja.push(r.inner_html().trim().to_owned());
+            }
 
             if label.starts_with("Sample Input") {
-                inputs.push(r.inner_html().trim().to_owned());
+                inputs_en.push(r.inner_html().trim().to_owned());
             }
             if label.starts_with("Sample Output") {
-                outputs.push(r.inner_html().trim().to_owned());
+                outputs_en.push(r.inner_html().trim().to_owned());
             }
         }
 
-        assert_eq!(inputs.len(), outputs.len());
+        assert_eq!(inputs_ja.len(), outputs_ja.len());
+        assert_eq!(inputs_en.len(), outputs_en.len());
+
+        let (inputs, outputs) = if inputs_ja.len() >= inputs_en.len() {
+            (inputs_ja, outputs_ja)
+        } else {
+            (inputs_en, outputs_en)
+        };
 
         let mut ret = vec![];
         for i in 0..inputs.len() {
