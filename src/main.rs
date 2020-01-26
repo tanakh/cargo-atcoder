@@ -507,7 +507,7 @@ fn print_lines(s: &str) {
 
 #[derive(StructOpt)]
 struct SubmitOpt {
-    /// Problem ID (e.g. a, b, ...)
+    /// Problem ID (must be same as binary name)
     problem_id: String,
     /// Force submit even if test fails
     #[structopt(short, long)]
