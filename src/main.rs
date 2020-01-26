@@ -6,7 +6,9 @@ use futures::{future::FutureExt, join, select};
 use handlebars::Handlebars;
 use if_chain::if_chain;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use lazy_static::lazy_static;
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use regex::Regex;
 use sha2::digest::Digest;
 use std::{
     cmp::{max, min},
@@ -270,11 +272,26 @@ fn test_samples(
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        if stdout.trim() != test_case.output.trim() {
-            println!("test sample {} ... {}", i + 1, red.apply_to("FAILED"));
+        let cmp_res = cmp_output(&stdout, &test_case.output);
+        let ferr = if let Some(ferr) = cmp_res.1 {
+            format!(
+                " (abs error: {:.3e}, rel error: {:.3e})",
+                ferr.abs_error, ferr.rel_error
+            )
+        } else {
+            "".to_string()
+        };
+
+        if !cmp_res.0 {
+            println!(
+                "test sample {} ... {}{}",
+                i + 1,
+                red.apply_to("FAILED"),
+                ferr
+            );
             fails.push((i, true, output));
         } else {
-            println!("test sample {} ... {}", i + 1, green.apply_to("ok"));
+            println!("test sample {} ... {}{}", i + 1, green.apply_to("ok"), ferr);
             if verbose && !output.stderr.is_empty() {
                 println!("stderr:");
                 print_lines(&String::from_utf8_lossy(&output.stderr));
@@ -345,6 +362,80 @@ fn test_samples(
         println!();
         Ok(false)
     }
+}
+
+const ERROR_THRESHOLD: f64 = 1e-6;
+
+#[derive(Debug)]
+struct FloatError {
+    abs_error: f64,
+    rel_error: f64,
+}
+
+// returns (accepted?, maximum float error if float value exists)
+fn cmp_output(reference: &str, out: &str) -> (bool, Option<FloatError>) {
+    let mut max_error = None;
+
+    let ws1 = reference.split_whitespace().collect::<Vec<_>>();
+    let ws2 = out.split_whitespace().collect::<Vec<_>>();
+
+    if ws1.len() != ws2.len() {
+        return (false, None);
+    }
+
+    for i in 0..ws1.len() {
+        let w1 = ws1[i];
+        let w2 = ws2[i];
+
+        if (is_float(w1) || is_float(w2))
+            && (is_float(w1) || is_integer(w1))
+            && (is_float(w2) || is_integer(w2))
+        {
+            let f1 = w1.parse::<f64>().unwrap();
+            let f2 = w2.parse::<f64>().unwrap();
+
+            let abs_error = (f1 - f2).abs();
+            let rel_error = abs_error / f1.abs();
+
+            if max_error.is_none() {
+                max_error = Some(FloatError {
+                    abs_error: 0.,
+                    rel_error: 0.,
+                });
+            }
+
+            max_error = Some({
+                FloatError {
+                    abs_error: abs_error.max(max_error.as_ref().unwrap().abs_error),
+                    rel_error: rel_error.max(max_error.as_ref().unwrap().rel_error),
+                }
+            });
+        } else {
+            if w1 != w2 {
+                return (false, None);
+            }
+        }
+    }
+
+    if let Some(max_error) = max_error {
+        let ok = max_error.abs_error.min(max_error.rel_error) < ERROR_THRESHOLD;
+        return (ok, Some(max_error));
+    }
+
+    (true, max_error)
+}
+
+lazy_static! {
+    static ref FLOAT_RE: Regex = Regex::new(r"^\d+\.\d+$").unwrap();
+    static ref INTEGER_RE: Regex = Regex::new(r"^\d+$").unwrap();
+}
+
+fn is_float(w: &str) -> bool {
+    FLOAT_RE.is_match(w)
+}
+
+fn is_integer(w: &str) -> bool {
+    INTEGER_RE.is_match(w)
 }
 
 fn test_custom(problem_id: &str, release: bool) -> Result<()> {
