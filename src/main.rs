@@ -431,6 +431,8 @@ struct SubmitOpt {
     /// Submit source code directory (overwrite config)
     #[structopt(long, conflicts_with = "bin")]
     source: bool,
+    /// Max column number of generated binary
+    column: Option<usize>,
     /// Do no use upx unless available
     #[structopt(long)]
     no_upx: bool,
@@ -473,7 +475,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
             .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?
     } else {
         println!("Submitting via binary...");
-        gen_binary_source(&problem_id, &config, opt.no_upx)?
+        gen_binary_source(&problem_id, &config, opt.column, opt.no_upx)?
     };
 
     atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
@@ -499,7 +501,12 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     Ok(())
 }
 
-fn gen_binary_source(problem_id: &str, config: &Config, no_upx: bool) -> Result<Vec<u8>> {
+fn gen_binary_source(
+    problem_id: &str,
+    config: &Config,
+    column: Option<usize>,
+    no_upx: bool,
+) -> Result<Vec<u8>> {
     let source_code = fs::read_to_string(format!("src/bin/{}.rs", problem_id))
         .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
 
@@ -558,7 +565,16 @@ fn gen_binary_source(problem_id: &str, config: &Config, no_upx: bool) -> Result<
         let bin = fs::read(&binary_file)?;
 
         let mut data = BTreeMap::new();
-        data.insert("BINARY", data_encoding::BASE64.encode(&bin));
+        let bin_base64 = data_encoding::BASE64.encode(&bin);
+        let column = column.unwrap_or(config.atcoder.binary_column);
+        data.insert(
+            "BINARY",
+            if column > 0 {
+                split_lines(&bin_base64, column)
+            } else {
+                bin_base64
+            },
+        );
         data.insert("SOURCE_CODE", source_code.trim_end().to_owned());
         data.insert(
             "HASH",
@@ -583,6 +599,25 @@ fn gen_binary_source(problem_id: &str, config: &Config, no_upx: bool) -> Result<
 fn get_file_size(path: impl AsRef<Path>) -> Result<u64> {
     let meta = fs::metadata(path)?;
     Ok(meta.len())
+}
+
+fn split_lines(s: &str, w: usize) -> String {
+    let mut s = s;
+
+    let mut ret = String::new();
+    while s.len() > w {
+        let (a, b) = s.split_at(w);
+        ret += a;
+        ret.push('\n');
+        s = b;
+    }
+
+    if s.len() > 0 {
+        ret += s;
+        ret.push('\n');
+    }
+
+    ret
 }
 
 // use termion::raw::IntoRawMode;
@@ -898,6 +933,9 @@ struct GenBinaryOpt {
     /// Output filename (default: <problem-id>-bin.rs)
     #[structopt(long, short)]
     output: Option<PathBuf>,
+    /// Max column number of generated binary
+    #[structopt(long, short)]
+    column: Option<usize>,
     /// Do not use UPX even if it is available
     #[structopt(long)]
     no_upx: bool,
@@ -905,7 +943,7 @@ struct GenBinaryOpt {
 
 fn gen_binary(opt: GenBinaryOpt) -> Result<()> {
     let config = read_config()?;
-    let src = gen_binary_source(&opt.problem_id, &config, opt.no_upx)?;
+    let src = gen_binary_source(&opt.problem_id, &config, opt.column, opt.no_upx)?;
     let filename = opt
         .output
         .clone()

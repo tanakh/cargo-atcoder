@@ -1,19 +1,23 @@
 [atcoder]
-submit_via_binary = false
-update_interval = 1000
+submit_via_binary = false # submit via binary by default
+binary_column = 80        # maximum column number of generated binary (0 for no wrapping)
+update_interval = 1000    # interval time of fetching result (ms)
 
 [profile]
+# target to use to generate binary
 target = "x86_64-unknown-linux-musl"
 
 [profile.release]
 lto = true
 panic = 'abort'
 
+# dependencies added to new project
 [dependencies]
+# proconio = "*"
+# competitive = { git = "https://github.com/tanakh/competitive-rs.git" }
 
 [project]
-# rustc_version = "1.15.1"
-
+# source code template
 template = """
 fn main() {
     unimplemented!();

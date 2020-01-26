@@ -29,4 +29,5 @@ fn decode(v: &str) -> Vec<u8> {
 }
 
 const TBL: &'static [u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-const BIN: &'static str = "{{BINARY}}";
+const BIN: &'static str = "
+{{BINARY}}";

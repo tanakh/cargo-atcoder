@@ -15,6 +15,7 @@ pub struct Config {
 #[derive(Clone, Debug, Deserialize)]
 pub struct AtCoder {
     pub submit_via_binary: bool,
+    pub binary_column: usize,
     pub update_interval: u64,
 }
 
