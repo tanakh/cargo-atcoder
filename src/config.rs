@@ -18,6 +18,7 @@ pub struct AtCoder {
     pub use_cross: bool,
     pub binary_column: usize,
     pub update_interval: u64,
+    pub strip_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
