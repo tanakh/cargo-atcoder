@@ -1,6 +1,7 @@
-![](https://github.com/tanakh/cargo-atcoder/workflows/Rust/badge.svg)
-
 # cargo-atcoder
+
+![](https://github.com/tanakh/cargo-atcoder/workflows/Rust/badge.svg) [![Join the chat at https://gitter.im/tanakh/cargo-atcoder](https://badges.gitter.im/tanakh/cargo-atcoder.svg)](https://gitter.im/tanakh/cargo-atcoder?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Cargo subcommand for AtCoder
 
 # 使い方
