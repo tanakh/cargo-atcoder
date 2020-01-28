@@ -624,7 +624,13 @@ fn gen_binary_source(
     let size = ByteSize::b(get_file_size(&binary_file)?);
     println!("Built binary size: {}", size);
 
-    let status = Command::new("strip").arg("-s").arg(&binary_file).status()?;
+    let status = Command::new(match config.atcoder.strip_path {
+        Some(ref p) => p,
+        None => "strip",
+    })
+    .arg("-s")
+    .arg(&binary_file)
+    .status()?;
     if !status.success() {
         return Err(anyhow!("strip failed"));
     }

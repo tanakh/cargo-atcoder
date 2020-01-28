@@ -151,3 +151,23 @@ $ cargo atcoder result [FLAGS] <submission-id>
 ## 設定ファイル
 
 `~/.config/cargo-atcoder.toml` に設定ファイルが生成されます。適当にいじって下さい（そのうち説明を書く）。
+
+## macOS 環境の場合
+
+設定ファイルは `~/Library/Preferences/cargo-atcoder.toml` に生成されます。
+
+`x86_64-unknown-linux-musl` 向けのコンパイルを面倒無く実行するため、`[atcoder]` テーブル内で `use_cross = true` を指定するのがおすすめです。`use_cross` を有効化することで、[rust-embedded/cross](https://github.com/rust-embedded/cross) を使用したコンパイルを行うようになります。Docker が必要になるので注意してください。
+
+また、実行バイナリを軽量化するために使われる `strip` コマンドが、macOS に最初から入っているものだとうまくいかないため、**GNU版**の `strip` を導入するのもおすすめです。Homebrewであれば以下を実行すればインストールすることができます。
+
+```
+$ brew install binutils
+```
+
+標準では `/usr/local/opt/binutils/bin` の中にインストールされます。
+ここにPATHを通すか、あるいは `cargo-atcoder.toml` の `[atcoder]` テーブル内に以下のようにGNU版 `strip` の絶対パスを指定すればOKです。
+
+```
+[atcoder]
+strip_path = "/usr/local/opt/binutils/bin/strip"
+```
