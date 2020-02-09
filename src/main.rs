@@ -13,6 +13,7 @@ use sha2::digest::Digest;
 use std::{
     cmp::max,
     collections::BTreeMap,
+    ffi::OsStr,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -863,6 +864,47 @@ async fn info() -> Result<()> {
     Ok(())
 }
 
+async fn warmup() -> Result<()> {
+    let problem_id: String = fs::read_dir("src/bin")?
+        .filter_map(|r| {
+            let r = r.ok()?;
+            if r.path().extension() == Some(OsStr::new("rs")) {
+                Some(r.path().file_stem().unwrap().to_string_lossy().into_owned())
+            } else {
+                None
+            }
+        })
+        .nth(0)
+        .ok_or_else(|| anyhow!("No source code in src/bin/ directory"))?;
+
+    println!("Warming up debug build...");
+
+    let stat = Command::new("cargo")
+        .arg("build")
+        .arg("--bin")
+        .arg(&problem_id)
+        .status()?;
+
+    if !stat.success() {
+        eprintln!("Failed to warm-up");
+    }
+
+    println!("Warming up release build...");
+
+    let _ = Command::new("cargo")
+        .arg("build")
+        .arg("--release")
+        .arg("--bin")
+        .arg(&problem_id)
+        .status()?;
+
+    if !stat.success() {
+        eprintln!("Failed to warm-up");
+    }
+
+    Ok(())
+}
+
 async fn watch_submission_status(
     atc: Arc<AtCoder>,
     contest_id: &str,
@@ -1222,6 +1264,8 @@ enum OptAtCoder {
     ClearSession,
     /// Show session information
     Info,
+    /// Warmup (pre-compile dependencies)
+    Warmup,
     /// Test sample cases
     Test(TestOpt),
     /// Submit solution
@@ -1249,6 +1293,7 @@ async fn main() -> Result<()> {
         // Logout => unimplemented!(),
         ClearSession => clear_session(),
         Info => info().await,
+        Warmup => warmup().await,
         Test(opt) => test(opt).await,
         Submit(opt) => submit(opt).await,
         Result(opt) => result(opt).await,
