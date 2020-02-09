@@ -3,7 +3,6 @@ use bytesize::ByteSize;
 use chrono::{DateTime, Local};
 use console::Style;
 use futures::{future::FutureExt, join, select};
-use handlebars::Handlebars;
 use if_chain::if_chain;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lazy_static::lazy_static;
@@ -674,32 +673,26 @@ fn gen_binary_source(
     }
 
     let code = {
-        let mut handlebars = Handlebars::new();
-        handlebars.register_escape_fn(|s: &str| s.to_owned());
-
         let templ = include_str!("../data/binary_runner.rs.txt");
-        handlebars.register_template_string("binary_runner", templ)?;
 
         let bin = fs::read(&binary_file)?;
 
-        let mut data = BTreeMap::new();
-        let bin_base64 = data_encoding::BASE64.encode(&bin);
         let column = column.unwrap_or(config.atcoder.binary_column);
-        data.insert(
-            "BINARY",
-            if column > 0 {
-                split_lines(&bin_base64, column)
-            } else {
-                bin_base64
-            },
-        );
-        data.insert("SOURCE_CODE", source_code.trim_end().to_owned());
-        data.insert(
-            "HASH",
-            data_encoding::HEXUPPER.encode(&sha2::Sha256::digest(&bin))[0..8].to_owned(),
-        );
+        let bin_base64 = data_encoding::BASE64.encode(&bin);
+        let bin_base64 = if column > 0 {
+            split_lines(&bin_base64, column)
+        } else {
+            bin_base64
+        };
 
-        handlebars.render("binary_runner", &data)?.trim().to_owned()
+        let code = templ.replace("{{SOURCE_CODE}}", source_code.trim_end());
+        let code = code.replace(
+            "{{HASH}}",
+            &data_encoding::HEXUPPER.encode(&sha2::Sha256::digest(&bin))[0..8],
+        );
+        let code = code.replace("{{BINARY}}", &bin_base64);
+
+        code
     };
 
     let size = ByteSize::b(code.len() as u64);
