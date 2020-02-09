@@ -13,6 +13,7 @@ use sha2::digest::Digest;
 use std::{
     cmp::max,
     collections::BTreeMap,
+    env,
     ffi::OsStr,
     fs,
     io::Write,
@@ -52,6 +53,10 @@ struct NewOpt {
     /// Create src/bin/<NAME>.rs without retrieving actual problem IDs
     #[structopt(short, long, value_name("NAME"))]
     bins: Vec<String>,
+
+    /// Skip warming-up after creating project.
+    #[structopt(long)]
+    skip_warmup: bool,
 }
 
 async fn new_project(opt: NewOpt) -> Result<()> {
@@ -121,6 +126,16 @@ async fn new_project(opt: NewOpt) -> Result<()> {
     });
 
     fs::write(toml_file, toml::to_string_pretty(&manifest)?)?;
+
+    println!("Creating project done.");
+
+    if !opt.skip_warmup {
+        let cwd = env::current_dir()?;
+        env::set_current_dir(&dir)?;
+        warmup().await?;
+        env::set_current_dir(&cwd)?;
+        println!("Warming up done.");
+    }
 
     Ok(())
 }
