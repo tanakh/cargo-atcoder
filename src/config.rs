@@ -1,14 +1,15 @@
 use anyhow::{anyhow, Result};
 use serde_derive::Deserialize;
-use std::collections::BTreeMap;
 use std::fs;
+use std::path::PathBuf;
 use toml::Value;
+use toml_edit::Document;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub atcoder: AtCoder,
     pub profile: Profile,
-    pub dependencies: BTreeMap<String, Value>,
+    pub dependencies: Value,
     pub project: Project,
 }
 
@@ -39,18 +40,27 @@ lazy_static::lazy_static! {
     static ref DEFAULT_CONFIG: Config = toml::from_str(DEFAULT_CONFIG_STR).unwrap();
 }
 
-pub fn read_config() -> Result<Config> {
+fn config_path() -> Result<PathBuf> {
     let config_path = dirs::config_dir()
         .ok_or_else(|| anyhow!("Failed to get config directory"))?
         .join("cargo-atcoder.toml");
 
     if !config_path.exists() {
         fs::write(&config_path, DEFAULT_CONFIG_STR)?;
-        return Ok(DEFAULT_CONFIG.clone());
     }
 
+    Ok(config_path)
+}
+
+pub fn read_config() -> Result<Config> {
+    let config_path = config_path()?;
     let s = fs::read_to_string(&config_path)
         .map_err(|_| anyhow!("Cannot read file: {}", config_path.display()))?;
     Ok(toml::from_str(&s)
         .map_err(|err| anyhow!("Failed to read `{}`: {}", config_path.display(), err))?)
+}
+
+pub fn read_config_preserving() -> Result<Document> {
+    let config_path = config_path()?;
+    Ok(fs::read_to_string(&config_path)?.parse::<Document>()?)
 }

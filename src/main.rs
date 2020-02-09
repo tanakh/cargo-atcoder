@@ -37,7 +37,7 @@ mod atcoder;
 mod config;
 
 use atcoder::*;
-use config::{read_config, Config};
+use config::{read_config, read_config_preserving, Config};
 
 fn session_file() -> PathBuf {
     dirs::cache_dir()
@@ -116,18 +116,17 @@ async fn new_project(opt: NewOpt) -> Result<()> {
     }
 
     let toml_file = dir.join("Cargo.toml");
-    let mut manifest: BTreeMap<String, toml::Value> =
-        toml::from_str(&fs::read_to_string(&toml_file)?)?;
-
-    manifest.insert("dependencies".to_string(), config.dependencies.into());
-
-    manifest.insert("profile".to_string(), {
-        let mut m = BTreeMap::new();
-        m.insert("release".to_string(), config.profile.release.clone());
-        m.into()
+    let mut manifest = fs::read_to_string(&toml_file)?.parse::<toml_edit::Document>()?;
+    let conf_preserved = read_config_preserving()?;
+    manifest["dependencies"] = conf_preserved["dependencies"].clone();
+    manifest["profile"] = toml_edit::Item::Table({
+        let mut tbl = toml_edit::Table::new();
+        tbl.set_implicit(true);
+        tbl
     });
+    manifest["profile"]["release"] = conf_preserved["profile"]["release"].clone();
 
-    fs::write(toml_file, toml::to_string_pretty(&manifest)?)?;
+    fs::write(toml_file, manifest.to_string())?;
 
     println!("Creating project done.");
 
