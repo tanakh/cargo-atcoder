@@ -101,7 +101,9 @@ async fn new_project(opt: NewOpt) -> Result<()> {
         return Err(anyhow!("Failed to create project: {}", &opt.contest_id));
     }
 
-    // fs::write(dir.join("rust-toolchain"), &config.rustc_version)?;
+    if let Some(rustc_version) = &config.project.rustc_version {
+        fs::write(dir.join("rust-toolchain"), rustc_version)?;
+    }
 
     fs::remove_file(dir.join("src").join("main.rs"))?;
     fs::create_dir(dir.join("src").join("bin"))?;

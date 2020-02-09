@@ -19,6 +19,9 @@ panic = 'abort'
 # competitive = { git = "https://github.com/tanakh/competitive-rs.git" }
 
 [project]
+# to create `rust-toolchain` file, uncomment this line.
+# rustc_version = "1.15.1"
+
 # source code template
 template = """
 fn main() {

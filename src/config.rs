@@ -30,7 +30,7 @@ pub struct Profile {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Project {
     pub template: String,
-    // pub rustc_version: String,
+    pub rustc_version: Option<String>,
 }
 
 const DEFAULT_CONFIG_STR: &str = include_str!("../config/cargo-atcoder.toml");
