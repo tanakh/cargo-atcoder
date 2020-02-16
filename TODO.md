@@ -57,3 +57,7 @@
 - [ ] テストで--custom指定したときはtaskのURL取りに行かない（開始前のコンテストとかでできるように）
 
 - [x] warmupコマンド
+
+- [ ] remote-test コマンド
+
+- [ ] easy-scraper で書き直す
