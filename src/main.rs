@@ -624,6 +624,11 @@ fn gen_binary_source(
     } else {
         "cargo"
     };
+
+    if which::which(program).is_err() {
+        return Err(anyhow!("Build failed. {} not found.", program))
+    }
+
     let status = Command::new(program)
         .arg("build")
         .arg(format!("--target={}", target))
