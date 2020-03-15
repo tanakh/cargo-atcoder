@@ -626,7 +626,7 @@ fn gen_binary_source(
     };
 
     if which::which(program).is_err() {
-        return Err(anyhow!("Build failed. {} not found.", program))
+        return Err(anyhow!("Build failed. {} not found.", program));
     }
 
     let status = Command::new(program)
