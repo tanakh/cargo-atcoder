@@ -331,7 +331,7 @@ impl AtCoder {
         Err(anyhow!("Login failed: Unknown error"))
     }
 
-    pub async fn problem_ids_of_rated_contest(
+    pub async fn problem_ids_from_score_table(
         &self,
         contest_id: &str,
     ) -> Result<Option<Vec<String>>> {

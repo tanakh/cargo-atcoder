@@ -70,7 +70,7 @@ async fn new_project(opt: NewOpt) -> Result<()> {
                 if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>();
                 if reqwest_err.status().map(Into::into) == Some(404);
                 then {
-                    atc.problem_ids_of_rated_contest(&opt.contest_id)
+                    atc.problem_ids_from_score_table(&opt.contest_id)
                         .await?
                         .map(|ss| ss.iter().map(|s| s.to_lowercase()).collect())
                         .ok_or_else(|| {
