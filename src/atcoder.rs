@@ -439,6 +439,7 @@ impl AtCoder {
         for r in doc.select(&h3_sel) {
             let p = ElementRef::wrap(r.parent().unwrap()).unwrap();
             let label = p.select(&h3_sel).next().unwrap().inner_html();
+            let label = label.trim();
             // dbg!(r.parent().unwrap().first_child().unwrap().value());
 
             // let label = r
