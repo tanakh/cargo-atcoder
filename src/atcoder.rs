@@ -456,6 +456,8 @@ impl AtCoder {
                     .next()
                     .unwrap()
                     .inner_html()
+                    .trim()
+                    .to_owned()
             };
             if label.starts_with("入力例") {
                 inputs_ja.push(f());
