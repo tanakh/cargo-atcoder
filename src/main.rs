@@ -1,5 +1,7 @@
-use anyhow::{anyhow, Result};
+use crate::metadata::{MetadataExt as _, PackageExt as _};
+use anyhow::{anyhow, Context as _, Result};
 use bytesize::ByteSize;
+use cargo_metadata::{Metadata, Package, Target};
 use chrono::{DateTime, Local};
 use console::Style;
 use futures::{future::FutureExt, join, select};
@@ -12,9 +14,7 @@ use sha2::digest::Digest;
 use std::{
     cmp::max,
     collections::BTreeMap,
-    env,
-    ffi::OsStr,
-    fs,
+    env, fs,
     io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -34,6 +34,7 @@ use unicode_width::UnicodeWidthStr as _;
 
 mod atcoder;
 mod config;
+mod metadata;
 
 use atcoder::*;
 use config::{read_config, read_config_preserving, Config};
@@ -130,10 +131,8 @@ async fn new_project(opt: NewOpt) -> Result<()> {
     println!("Creating project done.");
 
     if !opt.skip_warmup {
-        let cwd = env::current_dir()?;
-        env::set_current_dir(&dir)?;
-        warmup().await?;
-        env::set_current_dir(&cwd)?;
+        let metadata = metadata::cargo_metadata(None, format!("./{}", opt.contest_id).as_ref())?;
+        warmup_for(&metadata, Some(&[&opt.contest_id]))?;
         println!("Warming up done.");
     }
 
@@ -187,17 +186,20 @@ struct TestOpt {
 }
 
 async fn test(opt: TestOpt) -> Result<()> {
+    let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
+    let metadata = metadata::cargo_metadata(None, &cwd)?;
+    let package = metadata.query_for_member(None)?;
     let atc = AtCoder::new(&session_file())?;
     let problem_id = opt.problem_id;
-    let contest_id = get_cur_contest_id()?;
-    let contest_info = atc.contest_info(&contest_id).await?;
+    let contest_id = &package.name;
+    let contest_info = atc.contest_info(contest_id).await?;
 
     let problem = contest_info
         .problem(&problem_id)
         .ok_or_else(|| anyhow!("Problem `{}` is not contained in this contest", &problem_id))?;
 
     if opt.custom {
-        return test_custom(&problem_id, opt.release);
+        return test_custom(package, &problem_id, opt.release);
     }
 
     let test_cases = atc.test_cases(&problem.url).await?;
@@ -219,24 +221,21 @@ async fn test(opt: TestOpt) -> Result<()> {
         }
     }
 
-    let passed = test_samples(&problem_id, &tcs, opt.release, opt.verbose)?;
+    let passed = test_samples(package, &problem_id, &tcs, opt.release, opt.verbose)?;
     if passed && opt.submit {
-        let source = fs::read(format!("src/bin/{}.rs", problem_id))
-            .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
+        let Target { src_path, .. } = package.find_bin(&problem_id)?;
+        let source =
+            fs::read(src_path).map_err(|_| anyhow!("Failed to read {}", src_path.display()))?;
 
-        atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
+        atc.submit(contest_id, &problem_id, &String::from_utf8_lossy(&source))
             .await?;
     }
 
     Ok(())
 }
 
-fn get_cur_contest_id() -> Result<String> {
-    let manifest: toml::Value = toml::from_str(&fs::read_to_string("Cargo.toml")?)?;
-    Ok(manifest["package"]["name"].as_str().unwrap().to_owned())
-}
-
 fn test_samples(
+    package: &Package,
     problem_id: &str,
     test_cases: &[(usize, TestCase)],
     release: bool,
@@ -247,6 +246,8 @@ fn test_samples(
         .args(if release { vec!["--release"] } else { vec![] })
         .arg("--bin")
         .arg(&problem_id)
+        .arg("--manifest-path")
+        .arg(&package.manifest_path)
         .status()?;
 
     if !build_status.success() {
@@ -269,6 +270,8 @@ fn test_samples(
             .arg("-q")
             .arg("--bin")
             .arg(&problem_id)
+            .arg("--manifest-path")
+            .arg(&package.manifest_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -453,12 +456,14 @@ fn is_integer(w: &str) -> bool {
     INTEGER_RE.is_match(w)
 }
 
-fn test_custom(problem_id: &str, release: bool) -> Result<()> {
+fn test_custom(package: &Package, problem_id: &str, release: bool) -> Result<()> {
     let build_status = Command::new("cargo")
         .arg("build")
         .args(if release { vec!["--release"] } else { vec![] })
         .arg("--bin")
         .arg(&problem_id)
+        .arg("--manifest-path")
+        .arg(&package.manifest_path)
         .status()?;
 
     if !build_status.success() {
@@ -476,6 +481,8 @@ fn test_custom(problem_id: &str, release: bool) -> Result<()> {
         .arg("-q")
         .arg("--bin")
         .arg(&problem_id)
+        .arg("--manifest-path")
+        .arg(&package.manifest_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
@@ -548,12 +555,15 @@ struct SubmitOpt {
 }
 
 async fn submit(opt: SubmitOpt) -> Result<()> {
+    let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
+    let metadata = metadata::cargo_metadata(None, &cwd)?;
+    let package = metadata.query_for_member(None)?;
     let atc = AtCoder::new(&session_file())?;
     let config = read_config()?;
 
-    let contest_id = get_cur_contest_id()?;
+    let contest_id = &package.name;
     let problem_id = opt.problem_id;
-    let contest_info = atc.contest_info(&contest_id).await?;
+    let contest_info = atc.contest_info(contest_id).await?;
     let problem = contest_info
         .problem(&problem_id)
         .ok_or_else(|| anyhow!("Problem `{}` is not contained in this contest", &problem_id))?;
@@ -567,7 +577,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
             .into_iter()
             .enumerate()
             .collect::<Vec<_>>();
-        test_samples(&problem_id, &test_cases, opt.release, false)?
+        test_samples(package, &problem_id, &test_cases, opt.release, false)?
     };
 
     if !test_passed && !opt.force {
@@ -576,25 +586,26 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     }
 
     let via_bin = opt.bin || (config.atcoder.submit_via_binary && !opt.source);
+    let target = package.find_bin(&problem_id)?;
     let source = if !via_bin {
-        fs::read(format!("src/bin/{}.rs", problem_id))
-            .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?
+        let Target { src_path, .. } = target;
+        fs::read(src_path).map_err(|_| anyhow!("Failed to read {}", src_path.display()))?
     } else {
         println!("Submitting via binary...");
-        gen_binary_source(&problem_id, &config, opt.column, opt.no_upx)?
+        gen_binary_source(&metadata, package, &target, &config, opt.column, opt.no_upx)?
     };
 
-    atc.submit(&contest_id, &problem_id, &String::from_utf8_lossy(&source))
+    atc.submit(contest_id, &problem_id, &String::from_utf8_lossy(&source))
         .await?;
     println!();
 
     println!("Fetching submission result...");
     let atc = Arc::new(atc);
-    let last_id = watch_submission_status(Arc::clone(&atc), &contest_id, true).await?;
+    let last_id = watch_submission_status(Arc::clone(&atc), contest_id, true).await?;
     println!();
 
     if let Some(last_id) = last_id {
-        let res = atc.submission_status_full(&contest_id, last_id).await?;
+        let res = atc.submission_status_full(contest_id, last_id).await?;
         if let Some(code) = res.result.status.result_code() {
             if !code.accepted() {
                 println!("Submission detail:");
@@ -608,16 +619,22 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
 }
 
 fn gen_binary_source(
-    problem_id: &str,
+    metadata: &Metadata,
+    package: &Package,
+    bin: &Target,
     config: &Config,
     column: Option<usize>,
     no_upx: bool,
 ) -> Result<Vec<u8>> {
-    let source_code = fs::read_to_string(format!("src/bin/{}.rs", problem_id))
-        .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
+    let source_code = fs::read_to_string(&bin.src_path)
+        .map_err(|_| anyhow!("Failed to read {}", bin.src_path.display()))?;
 
     let target = &config.profile.target;
-    let binary_file = format!("target/{}/release/{}", target, problem_id);
+    let binary_file = metadata
+        .target_directory
+        .join(target)
+        .join("release")
+        .join(&bin.name);
 
     let program = if config.atcoder.use_cross {
         "cross"
@@ -631,10 +648,12 @@ fn gen_binary_source(
 
     let status = Command::new(program)
         .arg("build")
+        .arg("--manifest-path")
+        .arg(&package.manifest_path)
         .arg(format!("--target={}", target))
         .arg("--release")
         .arg("--bin")
-        .arg(&problem_id)
+        .arg(&bin.name)
         .arg("--quiet")
         .status()?;
 
@@ -757,9 +776,10 @@ async fn watch() -> Result<()> {
 
     // let conf = read_config()?;
 
+    let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
+    let metadata = metadata::cargo_metadata(None, &cwd)?;
+    let package = metadata.query_for_member(None)?.clone();
     let atc = AtCoder::new(&session_file())?;
-
-    let contest_id = get_cur_contest_id()?;
 
     let atc = Arc::new(atc);
 
@@ -771,8 +791,7 @@ async fn watch() -> Result<()> {
 
     let file_watcher_fut = {
         let atc = atc.clone();
-        let contest_id = contest_id.clone();
-        tokio::spawn(async move { watch_filesystem(&atc, &contest_id).await })
+        tokio::spawn(async move { watch_filesystem(&package, &atc).await })
     };
 
     // let ui_fut = {
@@ -798,32 +817,29 @@ async fn watch() -> Result<()> {
     Ok(())
 }
 
-async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
-    let contest_info = atc.contest_info(&contest_id).await?;
+async fn watch_filesystem(package: &Package, atc: &AtCoder) -> Result<()> {
+    let contest_info = atc.contest_info(&package.name).await?;
 
     let (tx, rx) = channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(150))?;
     let rx = Arc::new(Mutex::new(rx));
 
-    let cwd = std::env::current_dir()?;
-    let src_dir = cwd.join("src/bin");
-
-    watcher.watch(&src_dir, RecursiveMode::Recursive)?;
+    for Target { src_path, .. } in package.all_bins() {
+        watcher.watch(src_path, RecursiveMode::NonRecursive)?;
+    }
 
     let mut file_hash = BTreeMap::<String, _>::new();
 
     loop {
         let rx = rx.clone();
-        let src_dir = src_dir.clone();
         let pb = tokio::task::spawn_blocking(move || -> Option<PathBuf> {
             if let DebouncedEvent::Write(pb) = rx.lock().unwrap().recv().unwrap() {
                 let pb = pb.canonicalize().ok()?;
-                let r = pb.strip_prefix(&src_dir).ok()?;
-                if r.extension()? == "rs" {
-                    return Some(r.to_owned());
-                }
+                let r = pb.strip_prefix(pb.parent()?).ok()?;
+                Some(r.to_owned())
+            } else {
+                None
             }
-            None
         })
         .await?;
 
@@ -841,8 +857,7 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
             continue;
         };
 
-        let source = fs::read(format!("src/bin/{}.rs", problem_id))
-            .map_err(|_| anyhow!("Failed to read {}.rs", problem_id))?;
+        let source = fs::read(&pb).map_err(|_| anyhow!("Failed to read {}", pb.display()))?;
         let hash = sha2::Sha256::digest(&source);
 
         if file_hash.get(&problem_id) == Some(&hash) {
@@ -853,7 +868,7 @@ async fn watch_filesystem(atc: &AtCoder, contest_id: &str) -> Result<()> {
 
         let test_cases = atc.test_cases(&problem.url).await?;
         let test_cases = test_cases.into_iter().enumerate().collect::<Vec<_>>();
-        let test_passed = test_samples(&problem_id, &test_cases, false, false)?;
+        let test_passed = test_samples(package, &problem_id, &test_cases, false, false)?;
 
         if !test_passed {
             continue;
@@ -876,44 +891,54 @@ async fn info() -> Result<()> {
     Ok(())
 }
 
-async fn warmup() -> Result<()> {
-    let problem_id: String = fs::read_dir("src/bin")?
-        .filter_map(|r| {
-            let r = r.ok()?;
-            if r.path().extension() == Some(OsStr::new("rs")) {
-                Some(r.path().file_stem().unwrap().to_string_lossy().into_owned())
-            } else {
-                None
-            }
+fn warmup() -> Result<()> {
+    let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
+    let metadata = metadata::cargo_metadata(None, &cwd)?;
+    warmup_for(&metadata, None::<&[&str]>)
+}
+
+fn warmup_for(metadata: &Metadata, specs: Option<&[impl AsRef<str>]>) -> Result<()> {
+    let members = specs
+        .map(|specs| {
+            specs
+                .iter()
+                .map(|s| metadata.query_for_member(Some(s.as_ref())))
+                .collect()
         })
-        .next()
-        .ok_or_else(|| anyhow!("No source code in src/bin/ directory"))?;
+        .unwrap_or_else(|| Ok(metadata.all_members()))?;
 
-    println!("Warming up debug build...");
+    for member in members {
+        if let Some(first_bin) = member.all_bins().get(0) {
+            println!("Warming up debug build for `{}`...", member.name);
 
-    let stat = Command::new("cargo")
-        .arg("build")
-        .arg("--bin")
-        .arg(&problem_id)
-        .status()?;
+            let stat = Command::new("cargo")
+                .arg("build")
+                .arg("--manifest-path")
+                .arg(&member.manifest_path)
+                .arg("--bin")
+                .arg(&first_bin.name)
+                .status()?;
 
-    if !stat.success() {
-        eprintln!("Failed to warm-up");
+            if !stat.success() {
+                eprintln!("Failed to warm-up");
+            }
+
+            println!("Warming up release build for `{}`...", member.name);
+
+            let stat = Command::new("cargo")
+                .arg("build")
+                .arg("--manifest-path")
+                .arg(&member.manifest_path)
+                .arg("--release")
+                .arg("--bin")
+                .arg(&first_bin.name)
+                .status()?;
+
+            if !stat.success() {
+                eprintln!("Failed to warm-up");
+            }
+        }
     }
-
-    println!("Warming up release build...");
-
-    let _ = Command::new("cargo")
-        .arg("build")
-        .arg("--release")
-        .arg("--bin")
-        .arg(&problem_id)
-        .status()?;
-
-    if !stat.success() {
-        eprintln!("Failed to warm-up");
-    }
-
     Ok(())
 }
 
@@ -1109,8 +1134,11 @@ struct GenBinaryOpt {
 }
 
 fn gen_binary(opt: GenBinaryOpt) -> Result<()> {
+    let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
+    let metadata = metadata::cargo_metadata(None, &cwd)?;
+    let (target, package) = metadata.find_bin(&opt.problem_id)?;
     let config = read_config()?;
-    let src = gen_binary_source(&opt.problem_id, &config, opt.column, opt.no_upx)?;
+    let src = gen_binary_source(&metadata, package, target, &config, opt.column, opt.no_upx)?;
     let filename = opt
         .output
         .clone()
@@ -1130,10 +1158,12 @@ struct ResultOpt {
 }
 
 async fn result(opt: ResultOpt) -> Result<()> {
+    let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
+    let metadata = metadata::cargo_metadata(None, &cwd)?;
     let atc = AtCoder::new(&session_file())?;
-    let contest_id = get_cur_contest_id()?;
+    let contest_id = &metadata.query_for_member(None)?.name;
     let res = atc
-        .submission_status_full(&contest_id, opt.submission_id)
+        .submission_status_full(contest_id, opt.submission_id)
         .await?;
 
     print_full_result(&res, opt.verbose)
@@ -1242,10 +1272,12 @@ fn print_full_result(res: &FullSubmissionResult, verbose: bool) -> Result<()> {
 }
 
 async fn status() -> Result<()> {
+    let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
+    let metadata = metadata::cargo_metadata(None, &cwd)?;
     let atc = AtCoder::new(&session_file())?;
-    let contest_id = get_cur_contest_id()?;
+    let contest_id = &metadata.query_for_member(None)?.name;
     let atc = Arc::new(atc);
-    watch_submission_status(atc, &contest_id, false).await?;
+    watch_submission_status(atc, contest_id, false).await?;
     Ok(())
 }
 
@@ -1297,7 +1329,7 @@ async fn main() -> Result<()> {
         // Logout => unimplemented!(),
         ClearSession => clear_session(),
         Info => info().await,
-        Warmup => warmup().await,
+        Warmup => warmup(),
         Test(opt) => test(opt).await,
         Submit(opt) => submit(opt).await,
         Result(opt) => result(opt).await,

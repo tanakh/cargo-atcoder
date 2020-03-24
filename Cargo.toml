@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0"
 bytesize = "1.0"
+cargo_metadata = "0.9.1"
 chrono = "0.4"
 console = "0.9"
 data-encoding = "2.1"
@@ -32,4 +33,5 @@ tokio = { version = "0.2", features = ["macros", "time"] }
 toml = "0.5"
 toml_edit = "0.1"
 unicode-width = "0.1"
+url = "2.1.1"
 which = "3.1"
