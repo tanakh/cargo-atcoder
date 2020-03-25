@@ -171,13 +171,19 @@ struct TestOpt {
     /// Specify case number to test (e.g. 1, 2, ...)
     #[structopt(conflicts_with = "custom")]
     case_num: Vec<usize>,
+    /// [cargo] Package with the target to test
+    #[structopt(short, long, value_name("SPEC"))]
+    package: Option<String>,
+    /// [cargo] Path to Cargo.toml
+    #[structopt(long, value_name("PATH"))]
+    manifest_path: Option<PathBuf>,
     /// Use custom case from stdin
     #[structopt(short, long, conflicts_with = "case_num")]
     custom: bool,
     /// Submit if test passed
     #[structopt(short, long)]
     submit: bool,
-    /// Use --release flag to compile
+    /// [cargo build] Use --release flag to compile
     #[structopt(long)]
     release: bool,
     /// Use verbose output
@@ -187,8 +193,8 @@ struct TestOpt {
 
 async fn test(opt: TestOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
-    let metadata = metadata::cargo_metadata(None, &cwd)?;
-    let package = metadata.query_for_member(None)?;
+    let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
+    let package = metadata.query_for_member(opt.package.as_deref())?;
     let atc = AtCoder::new(&session_file())?;
     let problem_id = opt.problem_id;
     let contest_id = &package.name;
@@ -532,6 +538,12 @@ fn print_lines(s: &str) {
 struct SubmitOpt {
     /// Problem ID (must be same as binary name)
     problem_id: String,
+    /// [cargo] Package with the target to submit
+    #[structopt(short, long, value_name("SPEC"))]
+    package: Option<String>,
+    /// [cargo] Path to Cargo.toml
+    #[structopt(long, value_name("PATH"))]
+    manifest_path: Option<PathBuf>,
     /// Force submit even if test fails
     #[structopt(short, long)]
     force: bool,
@@ -549,15 +561,15 @@ struct SubmitOpt {
     /// Do no use upx unless available
     #[structopt(long)]
     no_upx: bool,
-    /// Use --release on pre-test (submission always uses --release)
+    /// [cargo build] Use --release on pre-test (submission always uses --release)
     #[structopt(long)]
     release: bool,
 }
 
 async fn submit(opt: SubmitOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
-    let metadata = metadata::cargo_metadata(None, &cwd)?;
-    let package = metadata.query_for_member(None)?;
+    let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
+    let package = metadata.query_for_member(opt.package.as_deref())?;
     let atc = AtCoder::new(&session_file())?;
     let config = read_config()?;
 
@@ -760,7 +772,17 @@ fn split_lines(s: &str, w: usize) -> String {
 // use tui::widgets::{Block, Borders, Widget};
 // use tui::Terminal;
 
-async fn watch() -> Result<()> {
+#[derive(StructOpt, Debug)]
+struct WatchOpt {
+    /// [cargo] Package to watch
+    #[structopt(short, long, value_name("SPEC"))]
+    package: Option<String>,
+    /// [cargo] Path to Cargo.toml
+    #[structopt(long, value_name("PATH"))]
+    manifest_path: Option<PathBuf>,
+}
+
+async fn watch(opt: WatchOpt) -> Result<()> {
     // let stdout = io::stdout().into_raw_mode()?;
     // let backend = TermionBackend::new(stdout);
     // let mut terminal = Terminal::new(backend)?;
@@ -777,8 +799,8 @@ async fn watch() -> Result<()> {
     // let conf = read_config()?;
 
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
-    let metadata = metadata::cargo_metadata(None, &cwd)?;
-    let package = metadata.query_for_member(None)?.clone();
+    let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
+    let package = metadata.query_for_member(opt.package.as_deref())?.clone();
     let atc = AtCoder::new(&session_file())?;
 
     let atc = Arc::new(atc);
@@ -891,10 +913,21 @@ async fn info() -> Result<()> {
     Ok(())
 }
 
-fn warmup() -> Result<()> {
+#[derive(StructOpt, Debug)]
+struct WarmupOpt {
+    /// [cargo] Package(s) to warm up
+    #[structopt(short, long, value_name("SPEC"), min_values(1), number_of_values(1))]
+    package: Vec<String>,
+
+    /// [cargo] Path to Cargo.toml
+    #[structopt(long, value_name("PATH"))]
+    manifest_path: Option<PathBuf>,
+}
+
+fn warmup(opt: WarmupOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
-    let metadata = metadata::cargo_metadata(None, &cwd)?;
-    warmup_for(&metadata, None::<&[&str]>)
+    let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
+    warmup_for(&metadata, Some(&*opt.package).filter(|ss| !ss.is_empty()))
 }
 
 fn warmup_for(metadata: &Metadata, specs: Option<&[impl AsRef<str>]>) -> Result<()> {
@@ -1122,6 +1155,9 @@ async fn watch_submission_status(
 struct GenBinaryOpt {
     /// Problem ID to make binary
     problem_id: String,
+    /// [cargo] Path to Cargo.toml
+    #[structopt(long, value_name("PATH"))]
+    manifest_path: Option<PathBuf>,
     /// Output filename (default: <problem-id>-bin.rs)
     #[structopt(long, short)]
     output: Option<PathBuf>,
@@ -1135,7 +1171,7 @@ struct GenBinaryOpt {
 
 fn gen_binary(opt: GenBinaryOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
-    let metadata = metadata::cargo_metadata(None, &cwd)?;
+    let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
     let (target, package) = metadata.find_bin(&opt.problem_id)?;
     let config = read_config()?;
     let src = gen_binary_source(&metadata, package, target, &config, opt.column, opt.no_upx)?;
@@ -1152,6 +1188,12 @@ fn gen_binary(opt: GenBinaryOpt) -> Result<()> {
 struct ResultOpt {
     /// submission ID
     submission_id: usize,
+    /// [cargo] Package
+    #[structopt(short, long, value_name("SPEC"))]
+    package: Option<String>,
+    /// [cargo] Path to Cargo.toml
+    #[structopt(long, value_name("PATH"))]
+    manifest_path: Option<PathBuf>,
     /// Use verbose output
     #[structopt(long, short)]
     verbose: bool,
@@ -1159,9 +1201,9 @@ struct ResultOpt {
 
 async fn result(opt: ResultOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
-    let metadata = metadata::cargo_metadata(None, &cwd)?;
+    let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
     let atc = AtCoder::new(&session_file())?;
-    let contest_id = &metadata.query_for_member(None)?.name;
+    let contest_id = &metadata.query_for_member(opt.package.as_deref())?.name;
     let res = atc
         .submission_status_full(contest_id, opt.submission_id)
         .await?;
@@ -1271,11 +1313,21 @@ fn print_full_result(res: &FullSubmissionResult, verbose: bool) -> Result<()> {
     Ok(())
 }
 
-async fn status() -> Result<()> {
+#[derive(StructOpt, Debug)]
+struct StatusOpt {
+    /// [cargo] Package
+    #[structopt(short, long, value_name("SPEC"))]
+    package: Option<String>,
+    /// [cargo] Path to Cargo.toml
+    #[structopt(long, value_name("PATH"))]
+    manifest_path: Option<PathBuf>,
+}
+
+async fn status(opt: StatusOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
-    let metadata = metadata::cargo_metadata(None, &cwd)?;
+    let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
     let atc = AtCoder::new(&session_file())?;
-    let contest_id = &metadata.query_for_member(None)?.name;
+    let contest_id = &metadata.query_for_member(opt.package.as_deref())?.name;
     let atc = Arc::new(atc);
     watch_submission_status(atc, contest_id, false).await?;
     Ok(())
@@ -1301,7 +1353,7 @@ enum OptAtCoder {
     /// Show session information
     Info,
     /// Warmup (pre-compile dependencies)
-    Warmup,
+    Warmup(WarmupOpt),
     /// Test sample cases
     Test(TestOpt),
     /// Submit solution
@@ -1311,9 +1363,9 @@ enum OptAtCoder {
     /// Generate rustified binary
     GenBinary(GenBinaryOpt),
     /// Show submission status
-    Status,
+    Status(StatusOpt),
     /// [WIP] Watch filesystem for automatic submission
-    Watch,
+    Watch(WatchOpt),
 }
 
 #[tokio::main]
@@ -1329,12 +1381,12 @@ async fn main() -> Result<()> {
         // Logout => unimplemented!(),
         ClearSession => clear_session(),
         Info => info().await,
-        Warmup => warmup(),
+        Warmup(opt) => warmup(opt),
         Test(opt) => test(opt).await,
         Submit(opt) => submit(opt).await,
         Result(opt) => result(opt).await,
         GenBinary(opt) => gen_binary(opt),
-        Status => status().await,
-        Watch => watch().await,
+        Status(opt) => status(opt).await,
+        Watch(opt) => watch(opt).await,
     }
 }

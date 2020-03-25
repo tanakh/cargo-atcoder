@@ -1,4 +1,4 @@
-use anyhow::{anyhow, ensure, Context as _};
+use anyhow::{anyhow, bail, Context as _};
 use cargo_metadata::{Metadata, MetadataCommand, Package, Resolve, Target};
 use std::{env, path::Path, process::Command, str};
 use url::Url;
@@ -42,7 +42,9 @@ impl MetadataExt for Metadata {
             .output()?;
         let stdout = str::from_utf8(&output.stdout)?.trim_end();
         let stderr = str::from_utf8(&output.stderr)?.trim_end();
-        ensure!(output.status.success(), "{}", stderr);
+        if !output.status.success() {
+            bail!("{}", stderr.trim_start_matches("error: "));
+        }
 
         let url = stdout.parse::<Url>()?;
         let fragment = url.fragment().expect("the URL should contain fragment");
