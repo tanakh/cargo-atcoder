@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Context as _, Result};
 use serde_derive::Deserialize;
 use std::fs;
 use std::path::PathBuf;
@@ -42,7 +42,7 @@ lazy_static::lazy_static! {
 
 fn config_path() -> Result<PathBuf> {
     let config_path = dirs::config_dir()
-        .ok_or_else(|| anyhow!("Failed to get config directory"))?
+        .with_context(|| "Failed to get config directory")?
         .join("cargo-atcoder.toml");
 
     if !config_path.exists() {
@@ -55,9 +55,13 @@ fn config_path() -> Result<PathBuf> {
 pub fn read_config() -> Result<Config> {
     let config_path = config_path()?;
     let s = fs::read_to_string(&config_path)
-        .map_err(|_| anyhow!("Cannot read file: {}", config_path.display()))?;
-    Ok(toml::from_str(&s)
-        .map_err(|err| anyhow!("Failed to read `{}`: {}", config_path.display(), err))?)
+        .with_context(|| format!("Failed to read: `{}`", config_path.display()))?;
+    toml::from_str(&s).with_context(|| {
+        format!(
+            "Failed to parse the TOML file at `{}`",
+            config_path.display(),
+        )
+    })
 }
 
 pub fn read_config_preserving() -> Result<Document> {
