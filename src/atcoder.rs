@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{anyhow, bail, Context as _, Result};
 use chrono::{DateTime, Utc};
 use itertools::Itertools as _;
 use regex::Regex;
@@ -309,10 +309,10 @@ impl AtCoder {
             .select(&Selector::parse("div.alert-danger").unwrap())
             .next()
         {
-            return Err(anyhow!(
+            bail!(
                 "Login failed: {}",
                 err.last_child().unwrap().value().as_text().unwrap().trim()
-            ));
+            );
         }
 
         // On success:

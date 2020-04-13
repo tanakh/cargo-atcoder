@@ -1,5 +1,5 @@
 use crate::metadata::{MetadataExt as _, PackageExt as _};
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{bail, ensure, Context as _, Result};
 use bytesize::ByteSize;
 use cargo_metadata::{Metadata, Package, Target};
 use chrono::{DateTime, Local};
@@ -90,7 +90,7 @@ async fn new_project(opt: NewOpt) -> Result<()> {
 
     let dir = Path::new(&opt.contest_id);
     if dir.is_dir() || dir.is_file() {
-        return Err(anyhow!("Directory {} already exists", dir.display()));
+        bail!("Directory {} already exists", dir.display());
     }
 
     let stat = Command::new("cargo")
@@ -98,7 +98,7 @@ async fn new_project(opt: NewOpt) -> Result<()> {
         .arg(&opt.contest_id)
         .status()?;
     if !stat.success() {
-        return Err(anyhow!("Failed to create project: {}", &opt.contest_id));
+        bail!("Failed to create project: {}", &opt.contest_id);
     }
 
     if let Some(rustc_version) = &config.project.rustc_version {
@@ -212,11 +212,11 @@ async fn test(opt: TestOpt) -> Result<()> {
 
     for &cn in opt.case_num.iter() {
         if cn == 0 || cn > test_cases.len() {
-            return Err(anyhow!(
+            bail!(
                 "Case num {} is not found in problem {} samples",
                 cn,
                 problem_id
-            ));
+            );
         }
     }
 
@@ -471,9 +471,7 @@ fn test_custom(package: &Package, problem_id: &str, release: bool) -> Result<()>
         .arg(&package.manifest_path)
         .status()?;
 
-    if !build_status.success() {
-        return Err(anyhow!("Build failed"));
-    }
+    ensure!(build_status.success(), "Build failed");
 
     println!("input test case:");
 
@@ -654,7 +652,7 @@ fn gen_binary_source(
     };
 
     if which::which(program).is_err() {
-        return Err(anyhow!("Build failed. {} not found.", program));
+        bail!("Build failed. {} not found.", program);
     }
 
     let status = Command::new(program)
@@ -668,9 +666,7 @@ fn gen_binary_source(
         .arg("--quiet")
         .status()?;
 
-    if !status.success() {
-        return Err(anyhow!("Build failed"));
-    }
+    ensure!(status.success(), "Build failed");
 
     let size = ByteSize::b(get_file_size(&binary_file)?);
     println!("Built binary size: {}", size);
@@ -682,9 +678,7 @@ fn gen_binary_source(
     .arg("-s")
     .arg(&binary_file)
     .status()?;
-    if !status.success() {
-        return Err(anyhow!("strip failed"));
-    }
+    ensure!(status.success(), "strip failed");
 
     let size = ByteSize::b(get_file_size(&binary_file)?);
     println!("Stripped binary size: {}", size);
@@ -697,9 +691,7 @@ fn gen_binary_source(
                 .arg("-qq")
                 .arg(&binary_file)
                 .status()?;
-            if !status.success() {
-                return Err(anyhow!("upx failed"));
-            }
+            ensure!(status.success(), "upx failed");
             let size = ByteSize::b(get_file_size(&binary_file)?);
             println!("Compressed binary size: {}", size);
         }
