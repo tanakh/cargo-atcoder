@@ -695,9 +695,7 @@ fn gen_binary_source(
             "{{HASH}}",
             &data_encoding::HEXUPPER.encode(&sha2::Sha256::digest(&bin))[0..8],
         );
-        let code = code.replace("{{BINARY}}", &bin_base64);
-
-        code
+        code.replace("{{BINARY}}", &bin_base64)
     };
 
     let size = ByteSize::b(code.len() as u64);
@@ -888,7 +886,7 @@ async fn warmup() -> Result<()> {
                 None
             }
         })
-        .nth(0)
+        .next()
         .ok_or_else(|| anyhow!("No source code in src/bin/ directory"))?;
 
     println!("Warming up debug build...");
@@ -1173,19 +1171,11 @@ fn print_full_result(res: &FullSubmissionResult, verbose: bool) -> Result<()> {
     println!("Result:        {}", stat);
     println!(
         "Runtime:       {}",
-        res.result
-            .run_time
-            .as_ref()
-            .map(|r| r.as_str())
-            .unwrap_or("N/A")
+        res.result.run_time.as_deref().unwrap_or("N/A")
     );
     println!(
         "Memory:        {}",
-        res.result
-            .memory
-            .as_ref()
-            .map(|r| r.as_str())
-            .unwrap_or("N/A")
+        res.result.memory.as_deref().unwrap_or("N/A")
     );
 
     if res
