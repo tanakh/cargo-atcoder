@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Context as _, Result};
 use chrono::{DateTime, Utc};
 use itertools::Itertools as _;
 use regex::Regex;
@@ -248,7 +248,7 @@ impl AtCoder {
         let _ = self
             .username()
             .await?
-            .ok_or_else(|| anyhow!("You are not logged in. Please login first."))?;
+            .with_context(|| "You are not logged in. Please login first.")?;
         Ok(())
     }
 
@@ -277,12 +277,12 @@ impl AtCoder {
         let csrf_token = document
             .select(&Selector::parse("input[name=\"csrf_token\"]").unwrap())
             .next()
-            .ok_or_else(|| anyhow!("cannot find csrf_token"))?;
+            .with_context(|| "cannot find csrf_token")?;
 
         let csrf_token = csrf_token
             .value()
             .attr("value")
-            .ok_or_else(|| anyhow!("cannot find csrf_token"))?;
+            .with_context(|| "cannot find csrf_token")?;
 
         let res = self
             .client
@@ -309,10 +309,10 @@ impl AtCoder {
             .select(&Selector::parse("div.alert-danger").unwrap())
             .next()
         {
-            return Err(anyhow!(
+            bail!(
                 "Login failed: {}",
                 err.last_child().unwrap().value().as_text().unwrap().trim()
-            ));
+            );
         }
 
         // On success:
@@ -774,7 +774,7 @@ impl AtCoder {
                 memory: resource.map(|r| r.1),
             })
         })()
-        .ok_or_else(|| anyhow!("Failed to parse result"))?;
+        .with_context(|| "Failed to parse result")?;
 
         // <table class="table table-bordered table-striped th-center">
         // <thead>

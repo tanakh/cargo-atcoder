@@ -1,5 +1,5 @@
 use crate::metadata::{MetadataExt as _, PackageExt as _};
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{bail, ensure, Context as _, Result};
 use bytesize::ByteSize;
 use cargo_metadata::{Metadata, Package, Target};
 use chrono::{DateTime, Local};
@@ -74,7 +74,7 @@ async fn new_project(opt: NewOpt) -> Result<()> {
                     atc.problem_ids_from_score_table(&opt.contest_id)
                         .await?
                         .map(|ss| ss.iter().map(|s| s.to_lowercase()).collect())
-                        .ok_or_else(|| {
+                        .with_context(|| {
                             err.context(
                                 "could not find problem names. please specify names with `--bins`",
                             )
@@ -90,7 +90,7 @@ async fn new_project(opt: NewOpt) -> Result<()> {
 
     let dir = Path::new(&opt.contest_id);
     if dir.is_dir() || dir.is_file() {
-        return Err(anyhow!("Directory {} already exists", dir.display()));
+        bail!("Directory {} already exists", dir.display());
     }
 
     let stat = Command::new("cargo")
@@ -98,7 +98,7 @@ async fn new_project(opt: NewOpt) -> Result<()> {
         .arg(&opt.contest_id)
         .status()?;
     if !stat.success() {
-        return Err(anyhow!("Failed to create project: {}", &opt.contest_id));
+        bail!("Failed to create project: {}", &opt.contest_id);
     }
 
     if let Some(rustc_version) = &config.project.rustc_version {
@@ -202,7 +202,7 @@ async fn test(opt: TestOpt) -> Result<()> {
 
     let problem = contest_info
         .problem(&problem_id)
-        .ok_or_else(|| anyhow!("Problem `{}` is not contained in this contest", &problem_id))?;
+        .with_context(|| format!("Problem `{}` is not contained in this contest", &problem_id))?;
 
     if opt.custom {
         return test_custom(package, &problem_id, opt.release);
@@ -212,11 +212,11 @@ async fn test(opt: TestOpt) -> Result<()> {
 
     for &cn in opt.case_num.iter() {
         if cn == 0 || cn > test_cases.len() {
-            return Err(anyhow!(
+            bail!(
                 "Case num {} is not found in problem {} samples",
                 cn,
                 problem_id
-            ));
+            );
         }
     }
 
@@ -231,8 +231,7 @@ async fn test(opt: TestOpt) -> Result<()> {
     if passed && opt.submit {
         let Target { src_path, .. } = package.find_bin(&problem_id)?;
         let source =
-            fs::read(src_path).map_err(|_| anyhow!("Failed to read {}", src_path.display()))?;
-
+            fs::read(src_path).with_context(|| format!("Failed to read {}", src_path.display()))?;
         atc.submit(contest_id, &problem_id, &String::from_utf8_lossy(&source))
             .await?;
     }
@@ -472,9 +471,7 @@ fn test_custom(package: &Package, problem_id: &str, release: bool) -> Result<()>
         .arg(&package.manifest_path)
         .status()?;
 
-    if !build_status.success() {
-        return Err(anyhow!("Build failed"));
-    }
+    ensure!(build_status.success(), "Build failed");
 
     println!("input test case:");
 
@@ -578,7 +575,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     let contest_info = atc.contest_info(contest_id).await?;
     let problem = contest_info
         .problem(&problem_id)
-        .ok_or_else(|| anyhow!("Problem `{}` is not contained in this contest", &problem_id))?;
+        .with_context(|| format!("Problem `{}` is not contained in this contest", &problem_id))?;
 
     let test_passed = if opt.skip_test {
         true
@@ -601,7 +598,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     let target = package.find_bin(&problem_id)?;
     let source = if !via_bin {
         let Target { src_path, .. } = target;
-        fs::read(src_path).map_err(|_| anyhow!("Failed to read {}", src_path.display()))?
+        fs::read(src_path).with_context(|| format!("Failed to read {}", src_path.display()))?
     } else {
         println!("Submitting via binary...");
         gen_binary_source(&metadata, package, &target, &config, opt.column, opt.no_upx)?
@@ -639,7 +636,7 @@ fn gen_binary_source(
     no_upx: bool,
 ) -> Result<Vec<u8>> {
     let source_code = fs::read_to_string(&bin.src_path)
-        .map_err(|_| anyhow!("Failed to read {}", bin.src_path.display()))?;
+        .with_context(|| format!("Failed to read {}", bin.src_path.display()))?;
 
     let target = &config.profile.target;
     let binary_file = metadata
@@ -655,7 +652,7 @@ fn gen_binary_source(
     };
 
     if which::which(program).is_err() {
-        return Err(anyhow!("Build failed. {} not found.", program));
+        bail!("Build failed. {} not found.", program);
     }
 
     let status = Command::new(program)
@@ -669,9 +666,7 @@ fn gen_binary_source(
         .arg("--quiet")
         .status()?;
 
-    if !status.success() {
-        return Err(anyhow!("Build failed"));
-    }
+    ensure!(status.success(), "Build failed");
 
     let size = ByteSize::b(get_file_size(&binary_file)?);
     println!("Built binary size: {}", size);
@@ -683,9 +678,7 @@ fn gen_binary_source(
     .arg("-s")
     .arg(&binary_file)
     .status()?;
-    if !status.success() {
-        return Err(anyhow!("strip failed"));
-    }
+    ensure!(status.success(), "strip failed");
 
     let size = ByteSize::b(get_file_size(&binary_file)?);
     println!("Stripped binary size: {}", size);
@@ -698,9 +691,7 @@ fn gen_binary_source(
                 .arg("-qq")
                 .arg(&binary_file)
                 .status()?;
-            if !status.success() {
-                return Err(anyhow!("upx failed"));
-            }
+            ensure!(status.success(), "upx failed");
             let size = ByteSize::b(get_file_size(&binary_file)?);
             println!("Compressed binary size: {}", size);
         }
@@ -879,7 +870,7 @@ async fn watch_filesystem(package: &Package, atc: &AtCoder) -> Result<()> {
             continue;
         };
 
-        let source = fs::read(&pb).map_err(|_| anyhow!("Failed to read {}", pb.display()))?;
+        let source = fs::read(&pb).with_context(|| format!("Failed to read {}", pb.display()))?;
         let hash = sha2::Sha256::digest(&source);
 
         if file_hash.get(&problem_id) == Some(&hash) {
