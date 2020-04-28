@@ -436,9 +436,10 @@ impl AtCoder {
         let mut inputs_en = vec![];
         let mut outputs_en = vec![];
 
-        for r in doc.select(&Selector::parse("h3+pre").unwrap()) {
+        for r in doc.select(&h3_sel) {
             let p = ElementRef::wrap(r.parent().unwrap()).unwrap();
             let label = p.select(&h3_sel).next().unwrap().inner_html();
+            let label = label.trim();
             // dbg!(r.parent().unwrap().first_child().unwrap().value());
 
             // let label = r
@@ -450,18 +451,26 @@ impl AtCoder {
             //     .as_text()
             //     .unwrap();
 
+            let f = || {
+                p.select(&Selector::parse("pre").unwrap())
+                    .next()
+                    .unwrap()
+                    .inner_html()
+                    .trim()
+                    .to_owned()
+            };
             if label.starts_with("入力例") {
-                inputs_ja.push(r.inner_html().trim().to_owned());
+                inputs_ja.push(f());
             }
             if label.starts_with("出力例") {
-                outputs_ja.push(r.inner_html().trim().to_owned());
+                outputs_ja.push(f());
             }
 
             if label.starts_with("Sample Input") {
-                inputs_en.push(r.inner_html().trim().to_owned());
+                inputs_en.push(f());
             }
             if label.starts_with("Sample Output") {
-                outputs_en.push(r.inner_html().trim().to_owned());
+                outputs_en.push(f());
             }
         }
 
