@@ -144,7 +144,7 @@ async fn login() -> Result<()> {
         .with_prompt("Username")
         .interact()?;
 
-    let password = dialoguer::PasswordInput::new()
+    let password = dialoguer::Password::new()
         .with_prompt("Password")
         .interact()?;
 
