@@ -657,13 +657,18 @@ fn gen_binary_source(
 
     let status = Command::new(program)
         .arg("build")
-        .arg("--manifest-path")
-        .arg(&package.manifest_path)
         .arg(format!("--target={}", target))
         .arg("--release")
         .arg("--bin")
         .arg(&bin.name)
         .arg("--quiet")
+        .current_dir({
+            // `cross` does not work with `--manifest-path <absolute path>`.
+            package
+                .manifest_path
+                .parent()
+                .expect("`manifest_path` should end with \"Cargo.toml\"")
+        })
         .status()?;
 
     ensure!(status.success(), "Build failed");
