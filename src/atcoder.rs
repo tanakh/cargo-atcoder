@@ -537,7 +537,7 @@ impl AtCoder {
                         .trim()
                         .split_whitespace()
                         .next()
-                        .unwrap()
+                        .unwrap_or("")
                         .to_lowercase()
                         .starts_with("rust")
                     {
