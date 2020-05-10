@@ -9,7 +9,7 @@ Cargo subcommand for AtCoder
 ## インストール
 
 ```
-$ cargo install --git https://github.com/tanakh/cargo-atcoder.git
+$ cargo install cargo-atcoder
 ```
 
 ## ログイン
