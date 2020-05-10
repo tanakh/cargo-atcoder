@@ -3,8 +3,12 @@ name = "cargo-atcoder"
 version = "0.1.0"
 authors = ["Hideyuki Tanaka <tanaka.hideyuki@gmail.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT"
+description = "Cargo subcommand for AtCoder"
+repository = "https://github.com/tanakh/cargo-atcoder"
+readme = "README.md"
+categories = ["command-line-utilities"]
+keywords = ["cli", "procon"]
 
 [dependencies]
 anyhow = "1.0.28"
