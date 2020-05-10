@@ -1,6 +1,14 @@
 name: Rust
 
-on: [push, pull_request]
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  push:
+    branches:
+      - '*'
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+**'
+  pull_request:
 
 jobs:
   rustfmt:
@@ -68,3 +76,82 @@ jobs:
       with:
         command: test
         args: --verbose
+
+  upload:
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+        - stable-x86_64-apple-darwin
+        - stable-x86_64-unknown-linux-gnu
+        include:
+        - { toolchain: stable-x86_64-apple-darwin     , target-triple: x86_64-apple-darwin     , os: macos-10.15  }
+        - { toolchain: stable-x86_64-unknown-linux-gnu, target-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04 }
+
+    name: Upload (${{ matrix.target-triple }})
+    runs-on: ${{ matrix.os }}
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: 'Setup `${{ matrix.toolchain }}`'
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ matrix.toolchain }}
+        default: true
+        profile: minimal
+
+    - name: '`cargo install --path . -v --locked`'
+      uses: actions-rs/cargo@v1
+      with:
+        command: install
+        args: --path . -v --locked
+
+    - name: Create an asset
+      id: asset
+      run: |
+        if ${{ contains(matrix.target-triple, 'pc-windows') }}; then
+          DOT_EXE=.exe
+        fi
+        BIN_TARGET=cargo-atcoder
+        ASSET_STEM="$BIN_TARGET-${GITHUB_REF#refs/tags/}-${{ matrix.target-triple }}"
+        git archive -o "./$ASSET_STEM.tar" --prefix "$ASSET_STEM/" HEAD
+        tar -xf "./$ASSET_STEM.tar"
+        mv "$HOME/.cargo/bin/$BIN_TARGET$DOT_EXE" "./$ASSET_STEM/"
+        if ${{ contains(matrix.target-triple, 'pc-windows') }}; then
+          ASSET="$ASSET_STEM.zip"
+          7z a "$ASSET" "./$ASSET_STEM"
+          zipinfo "./$ASSET"
+        else
+          ASSET="$ASSET_STEM.tar.gz"
+          tar -czvf "./$ASSET" "./$ASSET_STEM"
+        fi
+        echo "::set-output name=asset::$ASSET"
+      shell: bash
+
+    - name: Upload the asset
+      uses: actions/upload-artifact@v2
+      with:
+        name: assets
+        path: ${{ steps.asset.outputs.asset }}
+
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-18.04
+    needs: [rustfmt, build, upload]
+
+    steps:
+    - name: Download the assets
+      uses: actions/download-artifact@v2
+      with:
+        name: assets
+        path: ./assets
+
+    - name: GH Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ./assets/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
