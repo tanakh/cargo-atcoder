@@ -1,5 +1,5 @@
 use anyhow::{Context as _, Result};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 use toml::Value;
