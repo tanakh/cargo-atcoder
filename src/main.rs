@@ -42,9 +42,13 @@ use atcoder::*;
 use config::{read_config, read_config_preserving, Config};
 
 fn session_file() -> Result<PathBuf> {
-    let dir = dirs::cache_dir()
-        .with_context(|| "failed to get cache dir")?
-        .join("cargo-atcoder");
+    let dir = if let Some(dir) = env::var_os("CARGO_ATCODER_TEST_CACHE_DIR") {
+        dir.into()
+    } else {
+        dirs::cache_dir()
+            .with_context(|| "failed to get cache dir")?
+            .join("cargo-atcoder")
+    };
 
     if !dir.is_dir() {
         if dir.exists() {

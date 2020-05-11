@@ -40,3 +40,10 @@ unicode-width = "0.1.7"
 ureq_1_0_0 = { package = "ureq", version = "=1.0.0", default-features = false, features = ["tls"] }
 url = "2.1.1"
 which = "3.1.1"
+
+[dev-dependencies]
+assert_cmd = "1.0.1"
+maplit = "1.0.2"
+predicates = "1.0.4"
+pretty_assertions = "0.6.1"
+tempdir = "0.3.7"
