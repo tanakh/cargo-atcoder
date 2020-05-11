@@ -1,6 +1,6 @@
+use crate::http::StatusError;
 use crate::metadata::{MetadataExt as _, PackageExt as _};
-use crate::StatusError;
-use anyhow::{bail, ensure, Context as _, Result};
+use anyhow::{anyhow, bail, ensure, Context as _, Result};
 use bytesize::ByteSize;
 use cargo_metadata::{Metadata, Package, Target};
 use chrono::{DateTime, Local};
@@ -35,15 +35,25 @@ use unicode_width::UnicodeWidthStr as _;
 
 mod atcoder;
 mod config;
+mod http;
 mod metadata;
 
 use atcoder::*;
 use config::{read_config, read_config_preserving, Config};
 
-fn session_file() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap()
-        .join("cargo-atcoder/session.json")
+fn session_file() -> Result<PathBuf> {
+    let dir = dirs::cache_dir()
+        .ok_or_else(|| anyhow!("failed to get cache dir"))?
+        .join("cargo-atcoder");
+
+    if !dir.is_dir() {
+        if dir.exists() {
+            bail!("{} is not directory", dir.display());
+        }
+        fs::create_dir_all(&dir)?;
+    }
+
+    Ok(dir.join("session.json"))
 }
 
 #[derive(StructOpt)]
@@ -64,7 +74,7 @@ fn new_project(opt: NewOpt) -> Result<()> {
     let config = read_config()?;
 
     let bins = if opt.bins.is_empty() {
-        let atc = AtCoder::new(&session_file())?;
+        let atc = AtCoder::new(&session_file()?)?;
 
         match atc.contest_info(&opt.contest_id) {
             Ok(info) => info.problem_ids_lowercase(),
@@ -148,7 +158,7 @@ fn login() -> Result<()> {
         .with_prompt("Password")
         .interact()?;
 
-    let atc = AtCoder::new(&session_file())?;
+    let atc = AtCoder::new(&session_file()?)?;
     atc.login(&username, &password)?;
 
     println!("Login succeeded.");
@@ -157,7 +167,7 @@ fn login() -> Result<()> {
 }
 
 fn clear_session() -> Result<()> {
-    let path = session_file();
+    let path = session_file()?;
     if path.is_file() {
         fs::remove_file(&path)?;
     }
@@ -195,7 +205,7 @@ fn test(opt: TestOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
     let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
     let package = metadata.query_for_member(opt.package.as_deref())?;
-    let atc = AtCoder::new(&session_file())?;
+    let atc = AtCoder::new(&session_file()?)?;
     let problem_id = opt.problem_id;
     let contest_id = &package.name;
     let contest_info = atc.contest_info(contest_id)?;
@@ -566,7 +576,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
     let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
     let package = metadata.query_for_member(opt.package.as_deref())?;
-    let atc = AtCoder::new(&session_file())?;
+    let atc = AtCoder::new(&session_file()?)?;
     let config = read_config()?;
 
     let contest_id = &package.name;
@@ -794,7 +804,7 @@ async fn watch(opt: WatchOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
     let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
     let package = metadata.query_for_member(opt.package.as_deref())?.clone();
-    let atc = AtCoder::new(&session_file())?;
+    let atc = AtCoder::new(&session_file()?)?;
 
     let atc = Arc::new(atc);
 
@@ -895,7 +905,7 @@ async fn watch_filesystem(package: &Package, atc: &AtCoder) -> Result<()> {
 }
 
 fn info() -> Result<()> {
-    let atc = AtCoder::new(&session_file())?;
+    let atc = AtCoder::new(&session_file()?)?;
 
     if let Some(username) = atc.username()? {
         println!("Logged in as {}.", username);
@@ -1195,7 +1205,7 @@ struct ResultOpt {
 fn result(opt: ResultOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
     let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
-    let atc = AtCoder::new(&session_file())?;
+    let atc = AtCoder::new(&session_file()?)?;
     let contest_id = &metadata.query_for_member(opt.package.as_deref())?.name;
     let res = atc.submission_status_full(contest_id, opt.submission_id)?;
 
@@ -1317,7 +1327,7 @@ struct StatusOpt {
 async fn status(opt: StatusOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
     let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
-    let atc = AtCoder::new(&session_file())?;
+    let atc = AtCoder::new(&session_file()?)?;
     let contest_id = &metadata.query_for_member(opt.package.as_deref())?.name;
     let atc = Arc::new(atc);
     watch_submission_status(atc, contest_id, false).await?;
