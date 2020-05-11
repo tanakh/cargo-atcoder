@@ -1,6 +1,6 @@
 use crate::http::StatusError;
 use crate::metadata::{MetadataExt as _, PackageExt as _};
-use anyhow::{anyhow, bail, ensure, Context as _, Result};
+use anyhow::{bail, ensure, Context as _, Result};
 use bytesize::ByteSize;
 use cargo_metadata::{Metadata, Package, Target};
 use chrono::{DateTime, Local};
@@ -43,7 +43,7 @@ use config::{read_config, read_config_preserving, Config};
 
 fn session_file() -> Result<PathBuf> {
     let dir = dirs::cache_dir()
-        .ok_or_else(|| anyhow!("failed to get cache dir"))?
+        .with_context(|| "failed to get cache dir")?
         .join("cargo-atcoder");
 
     if !dir.is_dir() {
