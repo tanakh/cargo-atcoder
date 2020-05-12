@@ -1,9 +1,10 @@
-use crate::http::Client;
+use crate::http::{Client, StatusError};
 use anyhow::{anyhow, bail, Context as _, Result};
 use chrono::{DateTime, Utc};
 use itertools::Itertools as _;
 use regex::Regex;
 use scraper::{element_ref::ElementRef, Html, Selector};
+use std::fmt;
 use std::path::Path;
 use url::Url;
 
@@ -323,9 +324,15 @@ impl AtCoder {
     }
 
     pub fn contest_info(&self, contest_id: &str) -> Result<ContestInfo> {
-        self.check_login()?;
-
-        let doc = self.http_get(&format!("/contests/{}/tasks", contest_id))?;
+        let doc = self.retrieve_text_or_error_message(
+            &format!("/contests/{}/tasks", contest_id),
+            || {
+                format!(
+                    "You are not participating in `{}`, or it does not yet exist",
+                    contest_id,
+                )
+            },
+        )?;
 
         let doc = Html::parse_document(&doc);
         let sel_problem = Selector::parse("table tbody tr").unwrap();
@@ -376,8 +383,6 @@ impl AtCoder {
     }
 
     pub fn test_cases(&self, problem_url: &str) -> Result<Vec<TestCase>> {
-        self.check_login()?;
-
         let doc = self.http_get(problem_url)?;
 
         let doc = Html::parse_document(&doc);
@@ -621,11 +626,10 @@ impl AtCoder {
         contest_id: &str,
         submission_id: usize,
     ) -> Result<FullSubmissionResult> {
-        self.check_login()?;
-        let con = self.http_get(&format!(
-            "/contests/{}/submissions/{}",
-            contest_id, submission_id,
-        ))?;
+        let con = self.retrieve_text_or_error_message(
+            &format!("/contests/{}/submissions/{}", contest_id, submission_id),
+            || format!("Could not find `{}`", submission_id),
+        )?;
         let doc = Html::parse_document(&con);
 
         // <table class="table table-bordered table-striped">
@@ -760,6 +764,27 @@ impl AtCoder {
         let ret = FullSubmissionResult { result, cases };
 
         Ok(ret)
+    }
+
+    fn retrieve_text_or_error_message<T: fmt::Display, F: FnOnce() -> T>(
+        &self,
+        path: &str,
+        context_on_logged_in: F,
+    ) -> anyhow::Result<String> {
+        self.http_get(path).map_err(|err| {
+            if matches!(err.downcast_ref::<StatusError>(), Some(e) if e.status() == 404) {
+                match self.username() {
+                    Ok(username) => err.context(if username.is_some() {
+                        anyhow!("{}", context_on_logged_in())
+                    } else {
+                        anyhow!("You are not logged in. Please login first")
+                    }),
+                    Err(err) => err,
+                }
+            } else {
+                err
+            }
+        })
     }
 
     fn http_get(&self, path: &str) -> anyhow::Result<String> {
