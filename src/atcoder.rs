@@ -408,7 +408,9 @@ impl AtCoder {
                 p.select(&Selector::parse("pre").unwrap())
                     .next()
                     .unwrap()
-                    .inner_html()
+                    .text()
+                    .next()
+                    .unwrap()
                     .trim()
                     .to_owned()
             };
