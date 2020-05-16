@@ -49,6 +49,7 @@ fn config_path() -> Result<PathBuf> {
     .join("cargo-atcoder.toml");
 
     if !config_path.exists() {
+        fs::create_dir_all(config_path.parent().unwrap())?;
         fs::write(&config_path, DEFAULT_CONFIG_STR)?;
     }
 
