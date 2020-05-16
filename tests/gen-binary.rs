@@ -8,18 +8,40 @@ use tempdir::TempDir;
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 #[test]
-fn no_upx_no_use_cross() -> anyhow::Result<()> {
+fn no_upx_no_use_cross_for_existing_ws() -> anyhow::Result<()> {
     no_upx(
-        "cargo-atcoder-test-gen-binary-no-upx-no-use-cross",
+        "cargo-atcoder-test-gen-binary-no-upx-no-use-cross-for-existing-ws",
+        true,
         false,
         Duration::from_secs(10),
     )
 }
 
 #[test]
-fn no_upx_use_cross() -> anyhow::Result<()> {
+fn no_upx_use_cross_for_existing_ws() -> anyhow::Result<()> {
     no_upx(
-        "cargo-atcoder-test-gen-binary-no-upx-use-cross",
+        "cargo-atcoder-test-gen-binary-no-upx-use-cross-for-existing-ws",
+        true,
+        true,
+        Duration::from_secs(300),
+    )
+}
+
+#[test]
+fn no_upx_no_use_cross_for_missing_ws() -> anyhow::Result<()> {
+    no_upx(
+        "cargo-atcoder-test-gen-binary-no-upx-no-use-cross-for-missing-ws",
+        false,
+        false,
+        Duration::from_secs(10),
+    )
+}
+
+#[test]
+fn no_upx_use_cross_for_missing_ws() -> anyhow::Result<()> {
+    no_upx(
+        "cargo-atcoder-test-gen-binary-no-upx-use-cross-for-missing-ws",
+        false,
         true,
         Duration::from_secs(300),
     )
@@ -27,12 +49,17 @@ fn no_upx_use_cross() -> anyhow::Result<()> {
 
 fn no_upx(
     tempdir_prefix: &str,
+    virtual_manifest: bool,
     use_cross: bool,
     timeout_for_use_cross: Duration,
 ) -> anyhow::Result<()> {
     let tempdir = TempDir::new(tempdir_prefix)?;
 
     assert_no_manifest(tempdir.path());
+
+    if virtual_manifest {
+        fs::write(tempdir.path().join("Cargo.toml"), "[workspace]\n")?;
+    }
 
     cargo_atcoder_new(tempdir.path())?;
 
@@ -112,7 +139,7 @@ fn cargo_atcoder_new(dir: &Path) -> anyhow::Result<()> {
             "new",
             "language-test-202001",
             "--skip-warmup",
-            "-b",
+            "--problems",
             "practicea",
         ])
         .env("CARGO_ATCODER_TEST_CONFIG_DIR", dir)

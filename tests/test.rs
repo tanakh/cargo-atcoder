@@ -8,10 +8,34 @@ use tempdir::TempDir;
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 #[test]
-fn for_samples() -> anyhow::Result<()> {
-    let tempdir = TempDir::new("cargo-atcoder-test-test-for-samples")?;
+fn samples_for_existing_ws() -> anyhow::Result<()> {
+    samples("cargo-atcoder-test-test-samples-for-existing-ws", true)
+}
+
+#[test]
+fn samples_for_missing_ws() -> anyhow::Result<()> {
+    samples("cargo-atcoder-test-test-samples-for-missing-ws", false)
+}
+
+#[test]
+fn custom_input_for_existing_ws() -> anyhow::Result<()> {
+    custom_input("cargo-atcoder-test-test-custom_input-for-existing-ws", true)
+}
+
+#[test]
+fn custom_input_for_missing_ws() -> anyhow::Result<()> {
+    custom_input("cargo-atcoder-test-test-custom_input-for-missing-ws", false)
+}
+
+fn samples(tempdir_prefix: &str, create_virtual_manifest: bool) -> anyhow::Result<()> {
+    let tempdir = TempDir::new(tempdir_prefix)?;
 
     assert_no_manifest(tempdir.path());
+
+    if create_virtual_manifest {
+        fs::write(tempdir.path().join("Cargo.toml"), "[workspace]\n")?;
+    }
+
     cargo_atcoder_new(tempdir.path())?;
 
     let run =
@@ -30,14 +54,14 @@ test_result: ok
 
 "#
         },
-        |stderr| stderr.starts_with("   Compiling language-test-202001 v0.1.0"),
+        |stderr| stderr.contains("   Compiling language-test-202001 v0.1.0"),
     )?;
 
     run(
         RE,
         Assert::success,
         |stdout| {
-            stdout.starts_with(
+            stdout.contains(
                 r#"running 2 tests
 test sample 1 ... FAILED
 test sample 2 ... FAILED
@@ -48,20 +72,24 @@ test sample 2 ... FAILED
 "#,
             )
         },
-        |stderr| stderr.starts_with("   Compiling language-test-202001 v0.1.0"),
+        |stderr| stderr.contains("   Compiling language-test-202001 v0.1.0"),
     )?;
 
     run(CE, Assert::success, str::is_empty, |stderr| {
-        stderr.starts_with("   Compiling language-test-202001 v0.1.0")
+        stderr.contains("   Compiling language-test-202001 v0.1.0")
             && stderr.contains("could not compile `language-test-202001`.\n")
     })
 }
 
-#[test]
-fn for_custom_input() -> anyhow::Result<()> {
-    let tempdir = TempDir::new("cargo-atcoder-test-test-for-custom-input")?;
+fn custom_input(tempdir_prefix: &str, create_virtual_manifest: bool) -> anyhow::Result<()> {
+    let tempdir = TempDir::new(tempdir_prefix)?;
 
     assert_no_manifest(tempdir.path());
+
+    if create_virtual_manifest {
+        fs::write(tempdir.path().join("Cargo.toml"), "[workspace]\n")?;
+    }
+
     cargo_atcoder_new(tempdir.path())?;
 
     let run = |code, custom_input, status, stdout, stderr| -> _ {
@@ -89,7 +117,7 @@ fn for_custom_input() -> anyhow::Result<()> {
 "#,
             )
         },
-        |stderr| stderr.starts_with("   Compiling language-test-202001 v0.1.0"),
+        |stderr| stderr.contains("   Compiling language-test-202001 v0.1.0"),
     )?;
 
     run(
@@ -97,7 +125,7 @@ fn for_custom_input() -> anyhow::Result<()> {
         "ミ゙",
         Assert::success,
         |stdout| stdout.contains("runtime error"),
-        |stderr| stderr.starts_with("   Compiling language-test-202001 v0.1.0"),
+        |stderr| stderr.contains("   Compiling language-test-202001 v0.1.0"),
     )?;
 
     run(
@@ -105,11 +133,11 @@ fn for_custom_input() -> anyhow::Result<()> {
         "",
         Assert::success,
         |stdout| stdout.contains("runtime error"),
-        |stderr| stderr.starts_with("   Compiling language-test-202001 v0.1.0"),
+        |stderr| stderr.contains("   Compiling language-test-202001 v0.1.0"),
     )?;
 
     run(CE, "", Assert::failure, str::is_empty, |stderr| {
-        stderr.starts_with("   Compiling language-test-202001 v0.1.0")
+        stderr.contains("   Compiling language-test-202001 v0.1.0")
             && stderr.contains("could not compile `language-test-202001`.\n")
     })
 }
@@ -127,7 +155,7 @@ fn cargo_atcoder_new(dir: &Path) -> anyhow::Result<()> {
             "new",
             "language-test-202001",
             "--skip-warmup",
-            "-b",
+            "--problems",
             "practicea",
         ])
         .env("CARGO_ATCODER_TEST_CONFIG_DIR", dir)

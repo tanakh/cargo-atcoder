@@ -1,5 +1,6 @@
 use crate::http::StatusError;
 use crate::metadata::{MetadataExt as _, PackageExt as _};
+use crate::terminal::WriteColorExt as _;
 use anyhow::{bail, ensure, Context as _, Result};
 use bytesize::ByteSize;
 use cargo_metadata::{Metadata, Package, Target};
@@ -7,8 +8,11 @@ use chrono::{DateTime, Local};
 use console::Style;
 use futures::{future::FutureExt, join, select};
 use if_chain::if_chain;
+use ignore::{overrides::OverrideBuilder, WalkBuilder};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use itertools::Itertools as _;
 use lazy_static::lazy_static;
+use maplit::btreemap;
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use regex::Regex;
 use sha2::digest::Digest;
@@ -16,7 +20,8 @@ use std::{
     cmp::max,
     collections::BTreeMap,
     env, fs,
-    io::Write,
+    io::{self, Write},
+    iter,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
@@ -27,6 +32,7 @@ use std::{
     time::Duration,
 };
 use structopt::StructOpt;
+use termcolor::{Color, WriteColor};
 use tokio::time::delay_for;
 use unicode_width::UnicodeWidthStr as _;
 
@@ -37,6 +43,7 @@ mod atcoder;
 mod config;
 mod http;
 mod metadata;
+mod terminal;
 
 use atcoder::*;
 use config::{read_config, read_config_preserving, Config};
@@ -60,24 +67,32 @@ fn session_file() -> Result<PathBuf> {
     Ok(dir.join("session.json"))
 }
 
+fn implicit_table() -> toml_edit::Item {
+    let mut tbl = toml_edit::Table::new();
+    tbl.set_implicit(true);
+    toml_edit::Item::Table(tbl)
+}
+
 #[derive(StructOpt)]
 struct NewOpt {
     /// Contest ID (e.g. abc123)
     contest_id: String,
 
-    /// Create src/bin/<NAME>.rs without retrieving actual problem IDs
-    #[structopt(short, long, value_name("NAME"))]
-    bins: Vec<String>,
+    /// Set problem names without retrieving actual ones
+    #[structopt(long, value_name("NAME"))]
+    problems: Vec<String>,
 
     /// Skip warming-up after creating project.
     #[structopt(long)]
     skip_warmup: bool,
 }
 
+#[allow(clippy::clippy::cognitive_complexity)]
 fn new_project(opt: NewOpt) -> Result<()> {
+    let mut stderr = terminal::stderr();
     let config = read_config()?;
 
-    let bins = if opt.bins.is_empty() {
+    let problems = if opt.problems.is_empty() {
         let atc = AtCoder::new(&session_file()?)?;
 
         match atc.contest_info(&opt.contest_id) {
@@ -99,12 +114,77 @@ fn new_project(opt: NewOpt) -> Result<()> {
             },
         }
     } else {
-        opt.bins
+        opt.problems
     };
 
-    let dir = Path::new(&opt.contest_id);
+    let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
+
+    let ws_manifest_path = metadata::cargo_locate_project(None, &cwd).ok();
+
+    let dir = cwd.join(&opt.contest_id);
     if dir.is_dir() || dir.is_file() {
         bail!("Directory {} already exists", dir.display());
+    }
+
+    if let Some(ws_manifest_path) = &ws_manifest_path {
+        let mut manifest = fs::read_to_string(&ws_manifest_path)?
+            .parse::<toml_edit::Document>()
+            .with_context(|| {
+                format!(
+                    "failed to parse manifest at `{}`",
+                    ws_manifest_path.display(),
+                )
+            })?;
+
+        if manifest["workspace"].is_none() {
+            manifest["workspace"] = implicit_table();
+        }
+
+        let arr = manifest["workspace"]["members"]
+            .or_insert(toml_edit::value(toml_edit::Array::default()))
+            .as_array_mut()
+            .with_context(|| "`workspace.members` must be array")?;
+
+        let members = arr
+            .iter()
+            .map(toml_edit::Value::as_str)
+            .collect::<Option<Vec<_>>>()
+            .with_context(|| "the elements of `workspace.members` must be string")?
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .chain(iter::once(opt.contest_id.clone()))
+            .sorted()
+            .dedup();
+
+        for i in (0..arr.len()).rev() {
+            arr.remove(i);
+        }
+
+        for member in members {
+            arr.push(member);
+        }
+
+        fs::write(ws_manifest_path, manifest.to_string())?;
+
+        stderr.status_with_color(
+            "Added",
+            format_args!(
+                "{:?} to `workspace.members` at {}",
+                opt.contest_id,
+                ws_manifest_path.display(),
+            ),
+            Color::Green,
+        )?;
+    } else {
+        stderr.warn(
+            "No existing workspace found. We recommend that you manage packages in one workspace to reduce build time and disk usage. Run `cargo atcoder migrate` to unify existing workspaces. For further information about workspaces, see https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html",
+        )?;
+
+        if let Some(rustc_version) = &config.project.rustc_version {
+            let path = dir.join("rust-toolchain");
+            fs::write(&path, rustc_version)?;
+            stderr.status_with_color("Wrote", path.display(), Color::Green)?;
+        }
     }
 
     let stat = Command::new("cargo")
@@ -115,16 +195,22 @@ fn new_project(opt: NewOpt) -> Result<()> {
         bail!("Failed to create project: {}", &opt.contest_id);
     }
 
-    if let Some(rustc_version) = &config.project.rustc_version {
-        fs::write(dir.join("rust-toolchain"), rustc_version)?;
-    }
-
     fs::remove_file(dir.join("src").join("main.rs"))?;
+
+    stderr.status_with_color(
+        "Removed",
+        format_args!("the `main.rs` in `{}`", opt.contest_id),
+        Color::Green,
+    )?;
+
     fs::create_dir(dir.join("src").join("bin"))?;
 
-    for bin in bins {
+    for problem in &problems {
         fs::write(
-            dir.join("src").join("bin").join(bin).with_extension("rs"),
+            dir.join("src")
+                .join("bin")
+                .join(problem)
+                .with_extension("rs"),
             &config.project.template,
         )?;
     }
@@ -132,25 +218,254 @@ fn new_project(opt: NewOpt) -> Result<()> {
     let toml_file = dir.join("Cargo.toml");
     let mut manifest = fs::read_to_string(&toml_file)?.parse::<toml_edit::Document>()?;
     let conf_preserved = read_config_preserving()?;
-    manifest["dependencies"] = conf_preserved["dependencies"].clone();
-    manifest["profile"] = toml_edit::Item::Table({
+
+    manifest["package"]["metadata"] = implicit_table();
+    manifest["package"]["metadata"]["cargo-atcoder"] = implicit_table();
+    manifest["package"]["metadata"]["cargo-atcoder"]["problems"] = toml_edit::Item::Table({
         let mut tbl = toml_edit::Table::new();
-        tbl.set_implicit(true);
+        for problem in &problems {
+            tbl[problem]["bin"] = toml_edit::value(format!("{}-{}", opt.contest_id, problem));
+        }
         tbl
     });
-    manifest["profile"]["release"] = conf_preserved["profile"]["release"].clone();
+
+    manifest["bin"] = toml_edit::Item::ArrayOfTables({
+        let mut arr = toml_edit::ArrayOfTables::new();
+        for problem in &problems {
+            let mut tbl = toml_edit::Table::new();
+            tbl["name"] = toml_edit::value(format!("{}-{}", opt.contest_id, problem));
+            tbl["path"] = toml_edit::value(format!("./src/bin/{}.rs", problem));
+            arr.append(tbl);
+        }
+        arr
+    });
+
+    manifest["dependencies"] = conf_preserved["dependencies"].clone();
+
+    if ws_manifest_path.is_none() {
+        manifest["profile"] = implicit_table();
+        manifest["profile"]["release"] = conf_preserved["profile"]["release"].clone();
+    }
 
     fs::write(toml_file, manifest.to_string())?;
 
-    println!("Creating project done.");
+    stderr.status_with_color(
+        "Added",
+        format_args!("{} `bin`(s) to `{}`", problems.len(), opt.contest_id),
+        Color::Green,
+    )?;
 
-    if !opt.skip_warmup {
+    stderr.status_with_color(
+        "Modified",
+        format_args!("`{}` successfully", opt.contest_id),
+        Color::Green,
+    )?;
+
+    if opt.skip_warmup {
+        stderr.status_with_color("Skipping", "warming up", Color::Cyan)?;
+    } else {
         let metadata = metadata::cargo_metadata(None, format!("./{}", opt.contest_id).as_ref())?;
         warmup_for(&metadata, Some(&[&opt.contest_id]))?;
-        println!("Warming up done.");
+        stderr.status_with_color(
+            "Warmed up",
+            format_args!("`{}`", opt.contest_id),
+            Color::Green,
+        )?;
     }
 
     Ok(())
+}
+
+#[derive(StructOpt, Debug)]
+struct MigrateOpt {
+    /// Process glob patterns given with the `--glob` flag case insensitively
+    #[structopt(long)]
+    glob_case_insensitive: bool,
+
+    /// Do not confirm
+    #[structopt(long)]
+    noconfirm: bool,
+
+    /// Include or exclude manifest paths. For more detail, see the help of ripgrep
+    #[structopt(short, long, value_name("GLOB"))]
+    glob: Vec<String>,
+
+    /// Directory
+    #[structopt(default_value("."))]
+    dir: PathBuf,
+}
+
+fn migrate(opt: MigrateOpt) -> Result<()> {
+    let MigrateOpt {
+        glob_case_insensitive,
+        noconfirm,
+        glob,
+        dir,
+    } = opt;
+
+    let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
+    let dir = cwd.join(dir.strip_prefix(".").unwrap_or(&dir));
+    let root_manifest_path = dir.join("Cargo.toml");
+    let mut stderr = terminal::stderr();
+
+    read_config()?;
+    let config = read_config_preserving()?;
+
+    if root_manifest_path.exists() {
+        bail!("`{}` exists", root_manifest_path.display());
+    }
+
+    let manifest_paths = WalkBuilder::new(&dir)
+        .follow_links(true)
+        .max_depth(Some(32))
+        .overrides({
+            let mut overrides = OverrideBuilder::new(&dir);
+            for glob in glob {
+                overrides.add(&glob)?;
+            }
+            overrides.case_insensitive(glob_case_insensitive)?.build()?
+        })
+        .build()
+        .map(|entry| {
+            let path = entry?.into_path();
+            Ok(if path.file_name() == Some("Cargo.toml".as_ref()) {
+                Some(path)
+            } else {
+                None
+            })
+        })
+        .flat_map(std::result::Result::transpose)
+        .collect::<std::result::Result<Vec<_>, ignore::Error>>()?;
+
+    let mut include = vec![];
+
+    for manifest_path in manifest_paths.into_iter().sorted() {
+        let metadata = metadata::cargo_metadata_no_deps_frozen(&manifest_path)?;
+        if_chain! {
+            if let [package] = *metadata.all_members();
+            if package.manifest_path == manifest_path;
+            then {
+                stderr.status_with_color(
+                    "Found",
+                    format_args!("`{}`", manifest_path.display()),
+                    Color::Green,
+                )?;
+                include.push(package.clone());
+            } else {
+                stderr.status_with_color(
+                    "Ignoring",
+                    format_args!("`{}`", manifest_path.display()),
+                    Color::Cyan,
+                )?;
+            }
+        }
+    }
+
+    if !(noconfirm
+        || dialoguer::Confirm::new()
+            .with_prompt(format!("Found {} workspace(s). Proceed?", include.len()))
+            .interact()?)
+    {
+        bail!("Canceled");
+    }
+
+    let mut root_manifest = r#"[workspace]
+members = []
+
+[profile.release]
+"#
+    .parse::<toml_edit::Document>()
+    .unwrap();
+
+    root_manifest["profile"]["release"] = config["profile"]["release"].clone();
+
+    let mut package_manifests = btreemap!();
+
+    let workspace_members = root_manifest["workspace"]["members"]
+        .as_array_mut()
+        .unwrap();
+
+    for package in include {
+        workspace_members.push(rel_utf8_manifest_dir(&package.manifest_path, &dir));
+
+        let orig = fs::read_to_string(&package.manifest_path)?;
+        let mut edit = orig.parse::<toml_edit::Document>()?;
+
+        if let Some(profile) = edit["profile"].as_table_mut() {
+            profile.remove("release");
+        }
+
+        let bins = package.all_bins();
+
+        if edit["package"]["metadata"]["cargo-atcoder"].is_none() {
+            edit["package"]["metadata"] = implicit_table();
+            edit["package"]["metadata"]["cargo-atcoder"] = implicit_table();
+            edit["package"]["metadata"]["cargo-atcoder"]["problems"] = toml_edit::Item::Table({
+                let mut tbl = toml_edit::Table::new();
+                for bin in &bins {
+                    tbl[&bin.name]["bin"] =
+                        toml_edit::value(format!("{}-{}", package.name, bin.name));
+                }
+                tbl
+            });
+        }
+
+        if edit["bin"].is_none() {
+            edit["bin"] = toml_edit::Item::ArrayOfTables({
+                let mut arr = toml_edit::ArrayOfTables::new();
+                for bin in bins {
+                    let mut tbl = toml_edit::Table::new();
+                    tbl["name"] = toml_edit::value(format!("{}-{}", package.name, bin.name));
+                    tbl["path"] = toml_edit::value(format!("./src/bin/{}.rs", bin.name));
+                    arr.append(tbl);
+                }
+                arr
+            });
+        }
+
+        let edit = edit.to_string();
+        if orig != edit {
+            package_manifests.insert(package.manifest_path, (orig, edit));
+        }
+    }
+
+    if let Err(err) = (|| {
+        write_with_message(&root_manifest_path, &root_manifest.to_string(), &mut stderr)?;
+        for (path, (_, edit)) in &package_manifests {
+            write_with_message(path, edit, &mut stderr)?;
+        }
+        metadata::cargo_metadata_no_deps_frozen(&root_manifest_path)
+    })() {
+        stderr.status_with_color("Undoing", "the modifications", Color::Cyan)?;
+        fs::remove_file(root_manifest_path)?;
+        for (path, (orig, _)) in package_manifests {
+            write_with_message(&path, &orig, &mut stderr)?;
+        }
+        return Err(err);
+    }
+
+    return Ok(());
+
+    fn rel_utf8_manifest_dir<'a>(manifest_path: &'a Path, base: &Path) -> &'a str {
+        let manifest_dir = manifest_path
+            .parent()
+            .expect(r#"`manifest_path` should end with "Cargo.toml""#);
+
+        manifest_dir
+            .strip_prefix(base)
+            .unwrap_or(manifest_dir)
+            .to_str()
+            .expect("this is from `cargo metadata`")
+    }
+
+    fn write_with_message(
+        path: &Path,
+        content: &str,
+        mut stderr: impl WriteColor,
+    ) -> io::Result<()> {
+        fs::write(path, content)?;
+        stderr.status_with_color("Wrote", format_args!("`{}`", path.display()), Color::Green)
+    }
 }
 
 fn login() -> Result<()> {
@@ -209,17 +524,20 @@ fn test(opt: TestOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
     let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
     let package = metadata.query_for_member(opt.package.as_deref())?;
+    let package_metadata = metadata::read_package_metadata(&package.manifest_path)?;
     let atc = AtCoder::new(&session_file()?)?;
     let problem_id = opt.problem_id;
     let contest_id = &package.name;
     let contest_info = atc.contest_info(contest_id)?;
+
+    let bin_name = package_metadata.bin_name(&problem_id);
 
     let problem = contest_info
         .problem(&problem_id)
         .with_context(|| format!("Problem `{}` is not contained in this contest", &problem_id))?;
 
     if opt.custom {
-        return test_custom(package, &problem_id, opt.release);
+        return test_custom(package, bin_name, opt.release);
     }
 
     let test_cases = atc.test_cases(&problem.url)?;
@@ -241,9 +559,9 @@ fn test(opt: TestOpt) -> Result<()> {
         }
     }
 
-    let passed = test_samples(package, &problem_id, &tcs, opt.release, opt.verbose)?;
+    let passed = test_samples(package, bin_name, &tcs, opt.release, opt.verbose)?;
     if passed && opt.submit {
-        let Target { src_path, .. } = package.find_bin(&problem_id)?;
+        let Target { src_path, .. } = package.find_bin(bin_name)?;
         let source =
             fs::read(src_path).with_context(|| format!("Failed to read {}", src_path.display()))?;
         atc.submit(contest_id, &problem_id, &String::from_utf8_lossy(&source))?;
@@ -254,7 +572,7 @@ fn test(opt: TestOpt) -> Result<()> {
 
 fn test_samples(
     package: &Package,
-    problem_id: &str,
+    bin: &str,
     test_cases: &[(usize, TestCase)],
     release: bool,
     verbose: bool,
@@ -263,7 +581,7 @@ fn test_samples(
         .arg("build")
         .args(if release { vec!["--release"] } else { vec![] })
         .arg("--bin")
-        .arg(&problem_id)
+        .arg(bin)
         .arg("--manifest-path")
         .arg(&package.manifest_path)
         .status()?;
@@ -287,7 +605,7 @@ fn test_samples(
             .args(if release { vec!["--release"] } else { vec![] })
             .arg("-q")
             .arg("--bin")
-            .arg(&problem_id)
+            .arg(bin)
             .arg("--manifest-path")
             .arg(&package.manifest_path)
             .stdin(Stdio::piped())
@@ -474,12 +792,12 @@ fn is_integer(w: &str) -> bool {
     INTEGER_RE.is_match(w)
 }
 
-fn test_custom(package: &Package, problem_id: &str, release: bool) -> Result<()> {
+fn test_custom(package: &Package, bin: &str, release: bool) -> Result<()> {
     let build_status = Command::new("cargo")
         .arg("build")
         .args(if release { vec!["--release"] } else { vec![] })
         .arg("--bin")
-        .arg(&problem_id)
+        .arg(bin)
         .arg("--manifest-path")
         .arg(&package.manifest_path)
         .status()?;
@@ -496,7 +814,7 @@ fn test_custom(package: &Package, problem_id: &str, release: bool) -> Result<()>
         .args(if release { vec!["--release"] } else { vec![] })
         .arg("-q")
         .arg("--bin")
-        .arg(&problem_id)
+        .arg(bin)
         .arg("--manifest-path")
         .arg(&package.manifest_path)
         .stdout(Stdio::piped())
@@ -580,12 +898,14 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
     let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
     let package = metadata.query_for_member(opt.package.as_deref())?;
+    let package_metadata = metadata::read_package_metadata(&package.manifest_path)?;
     let atc = AtCoder::new(&session_file()?)?;
     let config = read_config()?;
 
     let contest_id = &package.name;
     let problem_id = opt.problem_id;
     let contest_info = atc.contest_info(contest_id)?;
+    let bin_name = package_metadata.bin_name(&problem_id);
     let problem = contest_info
         .problem(&problem_id)
         .with_context(|| format!("Problem `{}` is not contained in this contest", &problem_id))?;
@@ -598,7 +918,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
             .into_iter()
             .enumerate()
             .collect::<Vec<_>>();
-        test_samples(package, &problem_id, &test_cases, opt.release, false)?
+        test_samples(package, bin_name, &test_cases, opt.release, false)?
     };
 
     if !test_passed && !opt.force {
@@ -607,7 +927,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     }
 
     let via_bin = opt.bin || (config.atcoder.submit_via_binary && !opt.source);
-    let target = package.find_bin(&problem_id)?;
+    let target = package.find_bin(bin_name)?;
     let source = if !via_bin {
         let Target { src_path, .. } = target;
         fs::read(src_path).with_context(|| format!("Failed to read {}", src_path.display()))?
@@ -666,20 +986,18 @@ fn gen_binary_source(
         bail!("Build failed. {} not found.", program);
     }
 
+    // `cross` does not work with `--manifest-path <absolute path>`.
+    // Moreover, the working directory must be above the `target/`.
     let status = Command::new(program)
         .arg("build")
         .arg(format!("--target={}", target))
         .arg("--release")
+        .arg("-p")
+        .arg(format!("{}:{}", package.name, package.version))
         .arg("--bin")
         .arg(&bin.name)
         .arg("--quiet")
-        .current_dir({
-            // `cross` does not work with `--manifest-path <absolute path>`.
-            package
-                .manifest_path
-                .parent()
-                .expect("`manifest_path` should end with \"Cargo.toml\"")
-        })
+        .current_dir(&metadata.workspace_root)
         .status()?;
 
     ensure!(status.success(), "Build failed");
@@ -863,7 +1181,7 @@ async fn watch_filesystem(package: &Package, atc: &AtCoder) -> Result<()> {
         let rx = rx.clone();
         let pb = tokio::task::spawn_blocking(move || -> Option<PathBuf> {
             if let DebouncedEvent::Write(pb) = rx.lock().unwrap().recv().unwrap() {
-                let pb = pb.canonicalize().ok()?;
+                let pb = dunce::canonicalize(&pb).ok()?;
                 let r = pb.strip_prefix(pb.parent()?).ok()?;
                 Some(r.to_owned())
             } else {
@@ -1162,6 +1480,9 @@ async fn watch_submission_status(
 struct GenBinaryOpt {
     /// Problem ID to make binary
     problem_id: String,
+    /// [cargo] Package
+    #[structopt(short, long, value_name("SPEC"))]
+    package: Option<String>,
     /// [cargo] Path to Cargo.toml
     #[structopt(long, value_name("PATH"))]
     manifest_path: Option<PathBuf>,
@@ -1179,7 +1500,9 @@ struct GenBinaryOpt {
 fn gen_binary(opt: GenBinaryOpt) -> Result<()> {
     let cwd = env::current_dir().with_context(|| "failed to get CWD")?;
     let metadata = metadata::cargo_metadata(opt.manifest_path.as_deref(), &cwd)?;
-    let (target, package) = metadata.find_bin(&opt.problem_id)?;
+    let package = metadata.query_for_member(opt.package.as_deref())?;
+    let package_metadata = metadata::read_package_metadata(&package.manifest_path)?;
+    let target = package.find_bin(package_metadata.bin_name(&opt.problem_id))?;
     let config = read_config()?;
     let src = gen_binary_source(&metadata, package, target, &config, opt.column, opt.no_upx)?;
     let filename = opt
@@ -1349,6 +1672,8 @@ enum Opt {
 enum OptAtCoder {
     /// Create a new project for specified contest
     New(NewOpt),
+    /// Unify existing workspaces into one.
+    Migrate(MigrateOpt),
     /// Login to atcoder
     Login,
     // /// Logout from atcoder
@@ -1382,6 +1707,7 @@ async fn main() -> Result<()> {
     use OptAtCoder::*;
     match opt {
         New(opt) => new_project(opt),
+        Migrate(opt) => migrate(opt),
         Login => login(),
         // Logout => unimplemented!(),
         ClearSession => clear_session(),

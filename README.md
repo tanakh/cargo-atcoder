@@ -20,9 +20,32 @@ $ cargo atcoder login
 
 でAtCoderにログインします。httpのセッションを保存します。ユーザー名とパスワードは保存しないので安心して下さい。`clear-session`コマンドでセッション情報を消せます。
 
-## プロジェクト作成
+## パッケージ作成
 
-`new` コマンドでコンテスト用のプロジェクトファイルを作成します。
+まずは[ワークスペース](https://doc.rust-lang.org/stable/cargo/reference/workspaces.html)を作ります。
+
+```console
+$ echo '[workspace]' > ./Cargo.toml
+$ tree
+.
+└── Cargo.toml
+
+0 directories, 1 file
+```
+
+バイナリ提出を行なう場合はサイズ削減のために`profile.release`を設定しましょう。
+
+```console
+$ cat << EOF > ./Cargo.toml
+[workspace]
+
+[profile.release]
+lto = true
+panic = "abort"
+EOF
+```
+
+そして `new` コマンドでコンテスト用の[パッケージ](https://doc.rust-lang.org/stable/cargo/appendix/glossary.html#package)を作成します。
 
 ```
 $ cargo atcoder new <contest-name>
@@ -33,26 +56,33 @@ $ cargo atcoder new <contest-name>
 例えば、ABC152 (<https://atcoder.jp/contests/abc152>) なら、`abc152`になるので、
 
 ```console
-$ cargo atcoder new abc152
+$ cargo atcoder new abc152 --skip-warmup
+       Added "abc152" to `workspace.members` at /home/me/src/local/workspace/Cargo.toml
      Created binary (application) `abc152` package
+     Removed the `main.rs` in `abc152`
+       Added 6 `bin`(s) to `abc152`
+    Modified `abc152` successfully
+    Skipping warming up
 ```
 
-これで`abc152`というディレクトリが作られて、そこにcargoのプロジェクトが作られます。
+これで`abc152`というパッケージが作られます。
 
 ```console
-$ tree ./abc152
-./abc152
-├── Cargo.toml
-└── src
-    └── bin
-        ├── a.rs
-        ├── b.rs
-        ├── c.rs
-        ├── d.rs
-        ├── e.rs
-        └── f.rs
+$ tree
+.
+├── abc152
+│   ├── Cargo.toml
+│   └── src
+│       └── bin
+│           ├── a.rs
+│           ├── b.rs
+│           ├── c.rs
+│           ├── d.rs
+│           ├── e.rs
+│           └── f.rs
+└── Cargo.toml
 
-2 directories, 7 files
+3 directories, 8 files
 ```
 
 ソースファイルは
@@ -61,22 +91,72 @@ $ tree ./abc152
 2. コンテストのトップページの配点表
 
 から得られた問題のアルファベットに従い作成されます。
-開始前かつ配点表がトップページに無いコンテストではfile stemを`-b`, `--bins`で指定してください。
+開始前かつ配点表がトップページに無いコンテストでは名前を`--problems`で指定してください。
 
+```console
+$ cargo atcoder new <contest-name> --problems {a..f}
 ```
-$ cargo atcoder new <contest-name> -b {a..f}
+
+以前のcargo-atcdoerで作成したパッケージ達は`cargo atcoder migrate`で一つのワークスペースに統合することができます。
+
+```console
+$ tree
+.
+├── agc001
+│   ├── Cargo.toml
+│   └── src
+│       └── bin
+│           ├── a.rs
+│           ├── b.rs
+│           ├── c.rs
+│           ├── d.rs
+│           ├── e.rs
+│           └── f.rs
+└── agc002
+    ├── Cargo.toml
+    └── src
+        └── bin
+            ├── a.rs
+            ├── b.rs
+            ├── c.rs
+            ├── d.rs
+            ├── e.rs
+            └── f.rs
+
+6 directories, 14 files
+$ cargo atcoder migrate .
+       Found `/home/me/src/local/workspace/agc001/Cargo.toml`
+       Found `/home/me/src/local/workspace/agc002/Cargo.toml`
+Found 2 workspace(s). Proceed? yes
+       Wrote `/home/me/src/local/workspace/Cargo.toml`
+       Wrote `/home/me/src/local/workspace/agc001/Cargo.toml`
+       Wrote `/home/me/src/local/workspace/agc002/Cargo.toml`
+$ cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | .targets[] | .name' | sort
+agc001-a
+agc001-b
+agc001-c
+agc001-d
+agc001-e
+agc001-f
+agc002-a
+agc002-b
+agc002-c
+agc002-d
+agc002-e
+agc002-f
 ```
 
 ## 解答サブミット
 
-作成したプロジェクトのディレクトリの中で、`submit`コマンドを実行すると解答をサブミットできます。
+作成したパッケージのディレクトリの中で、`submit`コマンドを実行すると解答をサブミットできます。
 
-```
+```console
 $ cargo atcoder submit <problem-id>
 ```
 
-`problem-id`は、URLの末尾に含まれるものを指定します（例えば、<https://atcoder.jp/contests/abc152/tasks/abc152_a> なら、`a`）。
+カレントディレクトリがワークスペース直下の場合`-p`で、ワークスペースの外なら`--manifest-path`でパッケージを指定できます。
 
+`problem-id`は、例えばABCなら`a`, `b`, `c`, `d`, `e`, `f`です。
 
 サブミット前に、問題文中のテストケースでテストを行い、全て正解した場合のみサブミットを行います。オプションで強制的にサブミットしたり、サブミット前のテスト自体のスキップもできます。
 
