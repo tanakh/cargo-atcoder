@@ -672,7 +672,6 @@ fn gen_binary_source(
         .arg("--release")
         .arg("--bin")
         .arg(&bin.name)
-        .arg("--quiet")
         .current_dir({
             // `cross` does not work with `--manifest-path <absolute path>`.
             package
