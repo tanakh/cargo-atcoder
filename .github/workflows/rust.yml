@@ -73,17 +73,32 @@ jobs:
         command: clippy
         args: -- -D warnings
 
+    - name: Run tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --no-fail-fast --verbose
+
+    # `locked`, `dev-deps`
     - name: Build
       uses: actions-rs/cargo@v1
       with:
         command: build
         args: --verbose
 
-    - name: Run tests
+    # `locked`, `avoid-dev-deps`
+    - name: Install (debug, locked)
       uses: actions-rs/cargo@v1
       with:
-        command: test
-        args: --no-fail-fast --verbose
+        command: install
+        args: --path . --debug --verbose --locked
+
+    # `update`, `avoid-dev-deps`
+    - name: Install (debug)
+      uses: actions-rs/cargo@v1
+      with:
+        command: install
+        args: --path . --debug --verbose
 
   upload:
     strategy:
