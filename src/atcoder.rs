@@ -414,10 +414,9 @@ impl AtCoder {
                     .next()
                     .unwrap()
                     .text()
-                    .next()
-                    .unwrap()
-                    .trim()
-                    .to_owned()
+                    .exactly_one()
+                    .map(|s| s.trim().to_owned())
+                    .unwrap_or_default()
             };
             if label.starts_with("入力例") {
                 inputs_ja.push(f());
