@@ -133,6 +133,7 @@ fn new_project(opt: NewOpt) -> Result<()> {
     let mut manifest = fs::read_to_string(&toml_file)?.parse::<toml_edit::Document>()?;
     let conf_preserved = read_config_preserving()?;
     manifest["dependencies"] = conf_preserved["dependencies"].clone();
+    manifest["dev-dependencies"] = conf_preserved["dev-dependencies"].clone();
     manifest["profile"] = toml_edit::Item::Table({
         let mut tbl = toml_edit::Table::new();
         tbl.set_implicit(true);
