@@ -548,19 +548,16 @@ impl AtCoder {
         let mut ret = vec![];
 
         for r in doc.select(&Selector::parse("table tbody tr").unwrap()) {
-            // <td class="no-break"><time class='fixtime fixtime-second'>2020-01-18 03:59:59+0900</time></td>
+            // <td class="no-break"><time class="fixtime-second">2020-01-18 03:59:59</time></td>
             // <td><a href="/contests/abc123/tasks/abc123_a">A - Five Antennas</a></td>
-            // <td><a href="/users/tanakh">tanakh</a> <a href='/contests/abc123/submissions?f.User=tanakh'><span class='glyphicon glyphicon-search black' aria-hidden='true' data-toggle='tooltip' title='tanakhさんの提出を見る'></span></a></td>
-            // <td>Rust (1.15.1)</td>
+            // <td><a href="/users/tanakh">tanakh</a> <a href="/contests/abc123/submissions?f.User=tanakh"><span class="glyphicon glyphicon-search black" aria-hidden="true" data-toggle="tooltip" title="" data-original-title="tanakhさんの提出を見る"></span></a></td>
+            // <td><a href="/contests/abc123/submissions?f.Language=3504&amp;f.LanguageName=&amp;f.Status=&amp;f.Task=&amp;f.User=tanakh&amp;page=4">Rust (1.15.1)</a></td>
             // <td class="text-right submission-score" data-id="9551881">0</td>
             // <td class="text-right">1970 Byte</td>
-            // <td class='text-center'><span class='label label-warning' aria-hidden='true' data-toggle='tooltip' data-placement='top' title="実行時間制限超過">TLE</span>
-            // </td>
-            // <td class='text-right'>2103 ms</td>
-            // <td class='text-right'>4352 KB</td>
-            // <td class="text-center">
-            //     <a href="/contests/abc123/submissions/9551881">詳細</a>
-            // </td>
+            // <td class="text-center"><span class="label label-warning" aria-hidden="true" data-toggle="tooltip" data-placement="top" title="" data-original-title="実行時間制限超過">TLE</span></td>
+            // <td class="text-right">2103 ms</td>
+            // <td class="text-right">4352 KB</td>
+            // <td class="text-center"><a href="/contests/abc123/submissions/9551881">詳細</a>/td>
 
             let res = (|| -> Option<SubmissionResult> {
                 let sel = Selector::parse("td").unwrap();
@@ -584,7 +581,13 @@ impl AtCoder {
                     .value()
                     .as_text()?
                     .to_string();
-                let language = it.next()?.first_child()?.value().as_text()?.to_string();
+                let language = it
+                    .next()?
+                    .first_child()?
+                    .first_child()?
+                    .value()
+                    .as_text()?
+                    .to_string();
                 let t = it.next()?;
                 let id: usize = t.value().attr("data-id")?.parse().ok()?;
                 let score: i64 = t.first_child()?.value().as_text()?.parse().ok()?;
