@@ -557,7 +557,7 @@ impl AtCoder {
             // <td class="text-center"><span class="label label-warning" aria-hidden="true" data-toggle="tooltip" data-placement="top" title="" data-original-title="実行時間制限超過">TLE</span></td>
             // <td class="text-right">2103 ms</td>
             // <td class="text-right">4352 KB</td>
-            // <td class="text-center"><a href="/contests/abc123/submissions/9551881">詳細</a>/td>
+            // <td class="text-center"><a href="/contests/abc123/submissions/9551881">詳細</a></td>
 
             let res = (|| -> Option<SubmissionResult> {
                 let sel = Selector::parse("td").unwrap();
