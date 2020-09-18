@@ -20,6 +20,20 @@ $ cargo atcoder login
 
 でAtCoderにログインします。httpのセッションを保存します。ユーザー名とパスワードは保存しないので安心して下さい。`clear-session`コマンドでセッション情報を消せます。
 
+## `target`ディレクトリの共有 (任意)
+
+コンテスト用のプロジェクトを作成する前に、次の設定をすることをおすすめします。
+
+プロジェクトを並べる予定のディレクトリで次のコマンドを実行してください。
+
+```console
+$ mkdir ./.cargo
+$ echo '[build]\ntarget-dir = "target"' > ./.cargo/config.toml
+```
+
+これでこのディレクトリに[`build.target-dir`](https://doc.rust-lang.org/cargo/reference/config.html#buildtarget-dir)が設定され、そこから下にあるプロジェクト全体が一つの`target`ディレクトリを共有するようになります。
+そうすることで外部クレートを使う場合、毎回それらのビルドが走ることがなくなります。
+
 ## プロジェクト作成
 
 `new` コマンドでコンテスト用のプロジェクトファイルを作成します。
