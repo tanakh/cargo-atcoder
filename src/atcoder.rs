@@ -584,7 +584,13 @@ impl AtCoder {
                     .value()
                     .as_text()?
                     .to_string();
-                let language = it.next()?.first_child()?.value().as_text()?.to_string();
+                let language = it
+                    .next()?
+                    .first_child()?
+                    .first_child()?
+                    .value()
+                    .as_text()?
+                    .to_string();
                 let t = it.next()?;
                 let id: usize = t.value().attr("data-id")?.parse().ok()?;
                 let score: i64 = t.first_child()?.value().as_text()?.parse().ok()?;
