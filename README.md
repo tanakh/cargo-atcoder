@@ -1,6 +1,8 @@
-# cargo-atcoder
+[![Crates.io](https://img.shields.io/crates/v/cargo-atcoder.svg)](https://crates.io/crates/cargo-atcoder)
+![Workflow Status](https://github.com/tanakh/cargo-atcoder/workflows/Rust/badge.svg)
+[![Join the chat at https://gitter.im/tanakh/cargo-atcoder](https://badges.gitter.im/tanakh/cargo-atcoder.svg)](https://gitter.im/tanakh/cargo-atcoder?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-![](https://github.com/tanakh/cargo-atcoder/workflows/Rust/badge.svg) [![Join the chat at https://gitter.im/tanakh/cargo-atcoder](https://badges.gitter.im/tanakh/cargo-atcoder.svg)](https://gitter.im/tanakh/cargo-atcoder?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+# cargo-atcoder
 
 Cargo subcommand for AtCoder
 
