@@ -434,13 +434,19 @@ impl AtCoder {
             }
         }
 
-        assert_eq!(inputs_ja.len(), outputs_ja.len());
-        assert_eq!(inputs_en.len(), outputs_en.len());
-
-        let (inputs, outputs) = if inputs_ja.len() >= inputs_en.len() {
+        let (inputs, outputs) = if !inputs_ja.is_empty() && inputs_ja.len() == outputs_ja.len() {
             (inputs_ja, outputs_ja)
-        } else {
+        } else if !inputs_en.is_empty() && inputs_en.len() == outputs_en.len() {
             (inputs_en, outputs_en)
+        } else {
+            bail!(
+                "Could not scrape sample test cases (JA inputs: {}, JA outputs: {}, EN inputs: \
+                 {}, EN outputs: {})",
+                inputs_ja.len(),
+                outputs_ja.len(),
+                inputs_en.len(),
+                outputs_en.len(),
+            );
         };
 
         let mut ret = vec![];
