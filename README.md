@@ -1,5 +1,6 @@
 [![Crates.io](https://img.shields.io/crates/v/cargo-atcoder.svg)](https://crates.io/crates/cargo-atcoder)
 ![Workflow Status](https://github.com/tanakh/cargo-atcoder/workflows/Rust/badge.svg)
+[![dependency status](https://deps.rs/repo/github/tanakh/cargo-atcoder/status.svg)](https://deps.rs/repo/github/tanakh/cargo-atcoder)
 [![Join the chat at https://gitter.im/tanakh/cargo-atcoder](https://badges.gitter.im/tanakh/cargo-atcoder.svg)](https://gitter.im/tanakh/cargo-atcoder?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 # cargo-atcoder
