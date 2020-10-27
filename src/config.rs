@@ -44,7 +44,7 @@ fn config_path() -> Result<PathBuf> {
     let config_path = if let Some(path) = env::var_os("CARGO_ATCODER_TEST_CONFIG_DIR") {
         path.into()
     } else {
-        dirs::config_dir().with_context(|| "Failed to get config directory")?
+        dirs_next::config_dir().with_context(|| "Failed to get config directory")?
     }
     .join("cargo-atcoder.toml");
 

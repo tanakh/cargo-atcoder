@@ -4,13 +4,14 @@ use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tempdir::TempDir;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 #[test]
 fn default() -> anyhow::Result<()> {
-    let tempdir = TempDir::new("cargo-atcoder-test-new-default")?;
+    let tempdir = tempfile::Builder::new()
+        .prefix("cargo-atcoder-test-new-default-")
+        .tempdir()?;
 
     assert_no_manifest(tempdir.path());
 
@@ -45,7 +46,9 @@ fn default() -> anyhow::Result<()> {
 
 #[test]
 fn skip_warmup() -> anyhow::Result<()> {
-    let tempdir = TempDir::new("cargo-atcoder-test-new-skip-warmup")?;
+    let tempdir = tempfile::Builder::new()
+        .prefix("cargo-atcoder-test-new-skip-warmup-")
+        .tempdir()?;
 
     assert_no_manifest(tempdir.path());
 
@@ -80,7 +83,9 @@ fn skip_warmup() -> anyhow::Result<()> {
 
 #[test]
 fn bins() -> anyhow::Result<()> {
-    let tempdir = TempDir::new("cargo-atcoder-test-new-bins")?;
+    let tempdir = tempfile::Builder::new()
+        .prefix("cargo-atcoder-test-new-bins")
+        .tempdir()?;
 
     assert_no_manifest(tempdir.path());
 

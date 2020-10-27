@@ -3,13 +3,14 @@ use predicates::Predicate;
 use std::path::Path;
 use std::time::Duration;
 use std::{fs, str};
-use tempdir::TempDir;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 #[test]
 fn for_samples() -> anyhow::Result<()> {
-    let tempdir = TempDir::new("cargo-atcoder-test-test-for-samples")?;
+    let tempdir = tempfile::Builder::new()
+        .prefix("cargo-atcoder-test-test-for-samples-")
+        .tempdir()?;
 
     assert_no_manifest(tempdir.path());
     cargo_atcoder_new(tempdir.path())?;
@@ -59,7 +60,9 @@ test sample 2 ... FAILED
 
 #[test]
 fn for_custom_input() -> anyhow::Result<()> {
-    let tempdir = TempDir::new("cargo-atcoder-test-test-for-custom-input")?;
+    let tempdir = tempfile::Builder::new()
+        .prefix("cargo-atcoder-test-test-for-custom-input-")
+        .tempdir()?;
 
     assert_no_manifest(tempdir.path());
     cargo_atcoder_new(tempdir.path())?;

@@ -3,14 +3,13 @@
 use std::path::Path;
 use std::time::Duration;
 use std::{env, fs};
-use tempdir::TempDir;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 #[test]
 fn no_upx_no_use_cross() -> anyhow::Result<()> {
     no_upx(
-        "cargo-atcoder-test-gen-binary-no-upx-no-use-cross",
+        "cargo-atcoder-test-gen-binary-no-upx-no-use-cross-",
         false,
         Duration::from_secs(10),
     )
@@ -19,7 +18,7 @@ fn no_upx_no_use_cross() -> anyhow::Result<()> {
 #[test]
 fn no_upx_use_cross() -> anyhow::Result<()> {
     no_upx(
-        "cargo-atcoder-test-gen-binary-no-upx-use-cross",
+        "cargo-atcoder-test-gen-binary-no-upx-use-cross-",
         true,
         Duration::from_secs(300),
     )
@@ -30,7 +29,7 @@ fn no_upx(
     use_cross: bool,
     timeout_for_use_cross: Duration,
 ) -> anyhow::Result<()> {
-    let tempdir = TempDir::new(tempdir_prefix)?;
+    let tempdir = tempfile::Builder::new().prefix(tempdir_prefix).tempdir()?;
 
     assert_no_manifest(tempdir.path());
 
