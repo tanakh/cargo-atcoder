@@ -83,10 +83,7 @@ pub enum StatusCode {
 
 impl StatusCode {
     pub fn done(&self) -> bool {
-        match self {
-            StatusCode::Done(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Done(_))
     }
 
     pub fn result_code(&self) -> Option<&ResultCode> {
@@ -148,11 +145,7 @@ impl ResultCode {
     }
 
     pub fn accepted(&self) -> bool {
-        use ResultCode::*;
-        match self {
-            Accepted => true,
-            _ => false,
-        }
+        *self == Self::Accepted
     }
 }
 
