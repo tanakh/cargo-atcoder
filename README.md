@@ -149,6 +149,12 @@ $ cargo atcoder test <problem-id> --custom
 
 `--custom` を付けると、標準入力から入力するモードになります。
 
+```
+$ cargo atcoder test <problem-id> --case-folder <testcase-path> [case-num]
+```
+
+AtCoderからダウンロードしたテストケースなどを使ってテストができます。`testcase-path`には`in`と`out`を直下に持つディレクトリを指定します。
+
 ### `cargo atcoder gen-binary`
 
 ```

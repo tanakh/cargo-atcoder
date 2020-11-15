@@ -192,6 +192,12 @@ struct TestOpt {
     /// [cargo] Path to Cargo.toml
     #[structopt(long, value_name("PATH"))]
     manifest_path: Option<PathBuf>,
+    /// Use test cases from a local folder
+    ///
+    /// Inputs and outputs should be placed in `in` and `out` subdirectories, respectively
+    /// Past test cases can be downloaded from "AtCoder's Testcases": https://atcoder.jp/posts/261
+    #[structopt(long, value_name("PATH"))]
+    case_folder: Option<PathBuf>,
     /// Use custom case from stdin
     #[structopt(short, long, conflicts_with = "case_num")]
     custom: bool,
@@ -204,6 +210,29 @@ struct TestOpt {
     /// Use verbose output
     #[structopt(short, long)]
     verbose: bool,
+}
+
+fn scan_local_testcases(folder: &Path) -> Result<Vec<TestCase>> {
+    let inputs = folder
+        .join("in")
+        .read_dir()?
+        .map(|entry| entry.map(|entry| (entry.file_name(), fs::read(entry.path()))))
+        .collect::<std::io::Result<BTreeMap<_, _>>>()?;
+    let mut outputs = folder
+        .join("out")
+        .read_dir()?
+        .map(|entry| entry.map(|entry| (entry.file_name(), fs::read(entry.path()))))
+        .collect::<std::io::Result<BTreeMap<_, _>>>()?;
+    inputs
+        .into_iter()
+        .filter_map(|(k, v)| Some((v, outputs.remove(&k)?)))
+        .map(|(i, o)| {
+            Ok(TestCase {
+                input: String::from_utf8(i?)?,
+                output: String::from_utf8(o?)?,
+            })
+        })
+        .collect()
 }
 
 fn test(opt: TestOpt) -> Result<()> {
@@ -223,7 +252,11 @@ fn test(opt: TestOpt) -> Result<()> {
         return test_custom(package, &problem_id, opt.release);
     }
 
-    let test_cases = atc.test_cases(&problem.url)?;
+    let test_cases = if let Some(dir) = opt.case_folder {
+        scan_local_testcases(&dir)?
+    } else {
+        atc.test_cases(&problem.url)?
+    };
 
     for &cn in opt.case_num.iter() {
         if cn == 0 || cn > test_cases.len() {
