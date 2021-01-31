@@ -30,7 +30,7 @@ $ cargo atcoder login
 
 ```console
 $ mkdir ./.cargo
-$ echo '[build]\ntarget-dir = "target"' > ./.cargo/config.toml
+$ echo -e '[build]\ntarget-dir = "target"' > ./.cargo/config.toml
 ```
 
 これでこのディレクトリに[`build.target-dir`](https://doc.rust-lang.org/cargo/reference/config.html#buildtarget-dir)が設定され、そこから下にあるプロジェクト全体が一つの`target`ディレクトリを共有するようになります。
