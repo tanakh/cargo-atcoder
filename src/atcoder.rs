@@ -1,4 +1,4 @@
-use crate::http::{Client, StatusError};
+use crate::http::Client;
 use anyhow::{anyhow, bail, Context as _, Result};
 use chrono::{DateTime, Utc};
 use itertools::Itertools as _;
@@ -207,7 +207,7 @@ impl StatusCode {
 impl AtCoder {
     pub fn new(session_file: &Path) -> Result<AtCoder> {
         Ok(Self {
-            client: Client::new(session_file)?,
+            client: Client::new(session_file, ATCODER_ENDPOINT)?,
         })
     }
 
@@ -782,7 +782,7 @@ impl AtCoder {
         context_on_logged_in: F,
     ) -> anyhow::Result<String> {
         self.http_get(path).map_err(|err| {
-            if matches!(err.downcast_ref::<StatusError>(), Some(e) if e.status() == 404) {
+            if matches!(err.downcast_ref::<reqwest::Error>(), Some(e) if e.status() == Some(reqwest::StatusCode::NOT_FOUND)) {
                 match self.username() {
                     Ok(username) => err.context(if username.is_some() {
                         anyhow!("{}", context_on_logged_in())

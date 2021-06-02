@@ -1,4 +1,3 @@
-use crate::http::StatusError;
 use crate::metadata::{MetadataExt as _, PackageExt as _};
 use anyhow::{bail, ensure, Context as _, Result};
 use bytesize::ByteSize;
@@ -57,7 +56,7 @@ fn session_file() -> Result<PathBuf> {
         fs::create_dir_all(&dir)?;
     }
 
-    Ok(dir.join("session.json"))
+    Ok(dir.join("session.txt"))
 }
 
 #[derive(StructOpt)]
@@ -83,8 +82,8 @@ fn new_project(opt: NewOpt) -> Result<()> {
         match atc.contest_info(&opt.contest_id) {
             Ok(info) => info.problem_ids_lowercase(),
             Err(err) => if_chain! {
-                if let Some(status_err) = err.downcast_ref::<StatusError>();
-                if status_err.status() == 404;
+                if let Some(req_err) = err.downcast_ref::<reqwest::Error>();
+                if req_err.status() == Some(reqwest::StatusCode::NOT_FOUND);
                 then {
                     atc.problem_ids_from_score_table(&opt.contest_id)?
                         .map(|ss| ss.iter().map(|s| s.to_lowercase()).collect())
