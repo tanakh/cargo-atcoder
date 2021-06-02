@@ -26,7 +26,7 @@ use std::{
     time::Duration,
 };
 use structopt::StructOpt;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use unicode_width::UnicodeWidthStr as _;
 
 // use termion::event::{Event, Key};
@@ -244,8 +244,7 @@ fn test(opt: TestOpt) -> Result<()> {
     let passed = test_samples(package, &problem_id, &tcs, opt.release, opt.verbose)?;
     if passed && opt.submit {
         let Target { src_path, .. } = package.find_bin(&problem_id)?;
-        let source =
-            fs::read(src_path).with_context(|| format!("Failed to read {}", src_path.display()))?;
+        let source = fs::read(src_path).with_context(|| format!("Failed to read {}", src_path))?;
         atc.submit(contest_id, &problem_id, &String::from_utf8_lossy(&source))?;
     }
 
@@ -610,7 +609,7 @@ async fn submit(opt: SubmitOpt) -> Result<()> {
     let target = package.find_bin(&problem_id)?;
     let source = if !via_bin {
         let Target { src_path, .. } = target;
-        fs::read(src_path).with_context(|| format!("Failed to read {}", src_path.display()))?
+        fs::read(src_path).with_context(|| format!("Failed to read {}", src_path))?
     } else {
         println!("Submitting via binary...");
         gen_binary_source(&metadata, package, &target, &config, opt.column, opt.no_upx)?
@@ -647,7 +646,7 @@ fn gen_binary_source(
     no_upx: bool,
 ) -> Result<Vec<u8>> {
     let source_code = fs::read_to_string(&bin.src_path)
-        .with_context(|| format!("Failed to read {}", bin.src_path.display()))?;
+        .with_context(|| format!("Failed to read {}", bin.src_path))?;
 
     let target = &config.profile.target;
     let binary_file = metadata
@@ -1054,7 +1053,7 @@ async fn watch_submission_status(
                         problem_name_head
                     };
 
-                    pb.set_prefix(&format!(
+                    pb.set_prefix(format!(
                         "{} | {} |",
                         DateTime::<Local>::from(result.date).format("%Y-%m-%d %H:%M:%S"),
                         problem_name_head,
@@ -1084,7 +1083,7 @@ async fn watch_submission_status(
                         pb.0.set_position(cur as _);
                         if let Some(code) = code {
                             let msg = code.short_msg();
-                            pb.0.set_message(&format!(
+                            pb.0.set_message(format!(
                                 "{}",
                                 if code.accepted() {
                                     green.apply_to(&msg)
@@ -1115,7 +1114,7 @@ async fn watch_submission_status(
                                 stat += " ";
                             }
                             pb.0.set_style(finish_style.clone());
-                            pb.0.finish_with_message(&format!(
+                            pb.0.finish_with_message(format!(
                                 "{}{}",
                                 stat,
                                 if let (Some(rt), Some(mm)) = (result.run_time, result.memory) {
@@ -1144,7 +1143,7 @@ async fn watch_submission_status(
                         pb.tick();
                     }
                 }
-                delay_for(Duration::from_millis(refresh_rate)).await;
+                sleep(Duration::from_millis(refresh_rate)).await;
             }
         }
 

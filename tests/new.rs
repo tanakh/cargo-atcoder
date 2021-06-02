@@ -26,8 +26,8 @@ fn default() -> anyhow::Result<()> {
     let metadata = cargo_metadata(&tempdir.path().join("abc126").join("Cargo.toml"), true)?;
 
     assert_eq!(tempdir.path().join("abc126"), metadata.workspace_root);
-    assert_is_git_root(&metadata.workspace_root);
-    assert_build_cache_exists(&metadata.workspace_root);
+    assert_is_git_root(metadata.workspace_root.as_ref());
+    assert_build_cache_exists(metadata.workspace_root.as_ref());
     assert_bin_names(
         find_member(&metadata, "abc126"),
         &btreemap!(
@@ -61,8 +61,8 @@ fn skip_warmup() -> anyhow::Result<()> {
     let metadata = cargo_metadata(&tempdir.path().join("abc126").join("Cargo.toml"), false)?;
 
     assert_eq!(tempdir.path().join("abc126"), metadata.workspace_root);
-    assert_is_git_root(&metadata.workspace_root);
-    assert_build_cache_not_exist(&metadata.workspace_root);
+    assert_is_git_root(metadata.workspace_root.as_ref());
+    assert_build_cache_not_exist(metadata.workspace_root.as_ref());
     assert_bin_names(
         find_member(&metadata, "abc126"),
         &btreemap!(
@@ -98,8 +98,8 @@ fn bins() -> anyhow::Result<()> {
     let metadata = cargo_metadata(&tempdir.path().join("abc999").join("Cargo.toml"), true)?;
 
     assert_eq!(tempdir.path().join("abc999"), metadata.workspace_root);
-    assert_is_git_root(&metadata.workspace_root);
-    assert_build_cache_exists(&metadata.workspace_root);
+    assert_is_git_root(metadata.workspace_root.as_ref());
+    assert_build_cache_exists(metadata.workspace_root.as_ref());
     assert_bin_names(
         find_member(&metadata, "abc999"),
         &btreemap!(
@@ -133,13 +133,7 @@ fn find_member<'a>(metadata: &'a Metadata, name: &str) -> &'a Package {
         .packages
         .iter()
         .find(|p| metadata.workspace_members.contains(&p.id) && p.name == name)
-        .unwrap_or_else(|| {
-            panic!(
-                "{}: `{}` not found",
-                metadata.workspace_root.display(),
-                name,
-            )
-        })
+        .unwrap_or_else(|| panic!("{}: `{}` not found", metadata.workspace_root, name,))
 }
 
 fn assert_is_git_root(workspace_root: &Path) {
@@ -156,7 +150,7 @@ fn assert_build_cache_not_exist(workspace_root: &Path) {
 }
 
 fn assert_bin_names(package: &Package, bins: &BTreeMap<&str, PathBuf>) {
-    let mut actual_bins = btreemap!();
+    let mut actual_bins = BTreeMap::<&str, PathBuf>::new();
     for target in &package.targets {
         assert_eq!(vec!["bin"], target.kind);
         let path = target
@@ -164,7 +158,10 @@ fn assert_bin_names(package: &Package, bins: &BTreeMap<&str, PathBuf>) {
             .strip_prefix(package.manifest_path.parent().unwrap())
             .unwrap()
             .to_owned();
-        actual_bins.insert(&*target.name, path);
+        actual_bins.insert(&*target.name, {
+            let path: &Path = path.as_ref();
+            path.to_owned()
+        });
     }
     assert_eq!(*bins, actual_bins);
 }
