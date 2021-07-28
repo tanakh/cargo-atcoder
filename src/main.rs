@@ -193,7 +193,7 @@ struct TestOpt {
     #[structopt(long, value_name("PATH"))]
     manifest_path: Option<PathBuf>,
     /// Use custom case from stdin
-    #[structopt(short, long, conflicts_with = "case_num")]
+    #[structopt(short, long, conflicts_with = "case-num")]
     custom: bool,
     /// Submit if test passed
     #[structopt(short, long)]
