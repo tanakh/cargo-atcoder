@@ -13,7 +13,7 @@ keywords = ["cli", "procon"]
 [dependencies]
 anyhow = "1.0.40"
 bytesize = "1.0.1"
-cargo_metadata = "0.13.1"
+cargo_metadata = "0.14.0"
 chrono = "0.4.19"
 console = "0.14.1"
 data-encoding = "2.3.2"
@@ -40,6 +40,6 @@ which = "4.1.0"
 [dev-dependencies]
 assert_cmd = "1.0.4"
 maplit = "1.0.2"
-predicates = "1.0.8"
+predicates = "2.0.1"
 pretty_assertions = "0.7.2"
 tempdir = "0.3.7"
