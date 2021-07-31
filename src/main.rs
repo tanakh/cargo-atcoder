@@ -6,8 +6,8 @@ use chrono::{DateTime, Local};
 use console::Style;
 use futures::{future::FutureExt, join, select};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use lazy_static::lazy_static;
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use once_cell::sync::Lazy;
 use regex::Regex;
 use sha2::digest::Digest;
 use std::{
@@ -453,10 +453,8 @@ fn cmp_output(reference: &str, out: &str) -> (bool, Option<FloatError>) {
     (true, max_error)
 }
 
-lazy_static! {
-    static ref FLOAT_RE: Regex = Regex::new(r"^\d+\.\d+$").unwrap();
-    static ref INTEGER_RE: Regex = Regex::new(r"^\d+$").unwrap();
-}
+static FLOAT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\d+\.\d+$").unwrap());
+static INTEGER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\d+$").unwrap());
 
 fn is_float(w: &str) -> bool {
     FLOAT_RE.is_match(w)

@@ -36,10 +36,6 @@ pub struct Project {
 
 const DEFAULT_CONFIG_STR: &str = include_str!("../config/cargo-atcoder.toml");
 
-lazy_static::lazy_static! {
-    static ref DEFAULT_CONFIG: Config = toml::from_str(DEFAULT_CONFIG_STR).unwrap();
-}
-
 fn config_path() -> Result<PathBuf> {
     let config_path = if let Some(path) = env::var_os("CARGO_ATCODER_TEST_CONFIG_DIR") {
         path.into()
