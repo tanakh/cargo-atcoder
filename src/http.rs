@@ -1,12 +1,13 @@
 use anyhow::{anyhow, Result};
+use itertools::Itertools;
 use reqwest::{
-    blocking::Client as ReqwestClient,
     cookie::{CookieStore, Jar},
-    Url,
+    header::HeaderValue,
+    Client as ReqwestClient, Url,
 };
 use std::{
     fs::File,
-    io::{self, BufRead, BufReader, Write as _},
+    io::{BufRead, BufReader, Write as _},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -28,8 +29,6 @@ impl Drop for Client {
                 .cookie_store
                 .cookies(&self.endpoint.parse::<Url>().unwrap())
             {
-                eprintln!("cookie: {:?}", cookie);
-
                 writeln!(&mut file, "{}", cookie.to_str()?)?;
             }
 
@@ -37,11 +36,7 @@ impl Drop for Client {
         })();
 
         if let Err(err) = result {
-            let _ = writeln!(
-                io::stderr(),
-                "An error occurred while saving the session: {}",
-                err,
-            );
+            let _ = eprintln!("An error occurred while saving the session: {}", err);
         }
     }
 }
@@ -52,12 +47,15 @@ fn load_cookie_store(session_file: &Path, endpoint: &str) -> Result<Jar> {
     let f = File::open(session_file);
 
     if f.is_err() {
-        eprintln!("Session file not found. start new session.2");
         return Ok(jar);
     }
 
-    for line in BufReader::new(f.unwrap()).lines() {
-        jar.add_cookie_str(&line?, &url);
+    for line in BufReader::new(f?).lines() {
+        let v = line?
+            .split("; ")
+            .map(|s| HeaderValue::from_str(s).unwrap())
+            .collect_vec();
+        jar.set_cookies(&mut v.iter(), &url)
     }
     Ok(jar)
 }
@@ -68,7 +66,7 @@ impl Client {
 
         let cookie_store = Arc::new(load_cookie_store(session_file, endpoint)?);
 
-        let client = reqwest::blocking::ClientBuilder::new()
+        let client = reqwest::ClientBuilder::new()
             .cookie_provider(cookie_store.clone())
             .user_agent(USER_AGENT)
             .build()?;
@@ -81,11 +79,20 @@ impl Client {
         })
     }
 
-    pub fn get(&self, url: &Url) -> anyhow::Result<String> {
-        Ok(self.client.get(url.clone()).send()?.text()?)
+    pub async fn get(&self, url: &Url) -> Result<String> {
+        let resp = self.client.get(url.clone()).send();
+        Ok(resp.await?.error_for_status()?.text().await?)
     }
 
-    pub fn post_form(&self, url: &Url, form: &[(&str, &str)]) -> anyhow::Result<String> {
-        Ok(self.client.post(url.clone()).form(form).send()?.text()?)
+    pub async fn post_form(&self, url: &Url, form: &[(&str, &str)]) -> Result<String> {
+        let resp = self.client.post(url.clone()).form(form).send();
+        Ok(resp.await?.error_for_status()?.text().await?)
     }
+}
+
+pub fn is_http_error(err: &anyhow::Error, status_code: reqwest::StatusCode) -> bool {
+    matches!(
+        err.downcast_ref::<reqwest::Error>(),
+        Some(err) if err.status() == Some(status_code),
+    )
 }

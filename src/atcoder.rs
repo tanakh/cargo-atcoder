@@ -1,4 +1,4 @@
-use crate::http::Client;
+use crate::http::{is_http_error, Client};
 use anyhow::{anyhow, bail, Context as _, Result};
 use chrono::{DateTime, Utc};
 use itertools::Itertools as _;
@@ -211,15 +211,16 @@ impl AtCoder {
         })
     }
 
-    fn check_login(&self) -> Result<()> {
+    async fn check_login(&self) -> Result<()> {
         let _ = self
-            .username()?
+            .username()
+            .await?
             .with_context(|| "You are not logged in. Please login first.")?;
         Ok(())
     }
 
-    pub fn username(&self) -> Result<Option<String>> {
-        let doc = self.http_get("/")?;
+    pub async fn username(&self) -> Result<Option<String>> {
+        let doc = self.http_get("/").await?;
         let doc = Html::parse_document(&doc);
 
         let r = doc
@@ -235,8 +236,8 @@ impl AtCoder {
         ))
     }
 
-    pub fn login(&self, username: &str, password: &str) -> Result<()> {
-        let document = self.http_get("/login")?;
+    pub async fn login(&self, username: &str, password: &str) -> Result<()> {
+        let document = self.http_get("/login").await?;
         let document = Html::parse_document(&document);
 
         let csrf_token = document
@@ -249,14 +250,16 @@ impl AtCoder {
             .attr("value")
             .with_context(|| "cannot find csrf_token")?;
 
-        let res = self.http_post_form(
-            "/login",
-            &[
-                ("username", username),
-                ("password", password),
-                ("csrf_token", csrf_token),
-            ],
-        )?;
+        let res = self
+            .http_post_form(
+                "/login",
+                &[
+                    ("username", username),
+                    ("password", password),
+                    ("csrf_token", csrf_token),
+                ],
+            )
+            .await?;
 
         let res = Html::parse_document(&res);
 
@@ -291,8 +294,11 @@ impl AtCoder {
         Err(anyhow!("Login failed: Unknown error"))
     }
 
-    pub fn problem_ids_from_score_table(&self, contest_id: &str) -> Result<Option<Vec<String>>> {
-        let doc = self.http_get(&format!("/contests/{}", contest_id))?;
+    pub async fn problem_ids_from_score_table(
+        &self,
+        contest_id: &str,
+    ) -> Result<Option<Vec<String>>> {
+        let doc = self.http_get(&format!("/contests/{}", contest_id)).await?;
 
         Html::parse_document(&doc)
             .select(&Selector::parse("#contest-statement > .lang > .lang-ja table").unwrap())
@@ -323,16 +329,15 @@ impl AtCoder {
             .transpose()
     }
 
-    pub fn contest_info(&self, contest_id: &str) -> Result<ContestInfo> {
-        let doc = self.retrieve_text_or_error_message(
-            &format!("/contests/{}/tasks", contest_id),
-            || {
+    pub async fn contest_info(&self, contest_id: &str) -> Result<ContestInfo> {
+        let doc = self
+            .retrieve_text_or_error_message(&format!("/contests/{}/tasks", contest_id), || {
                 format!(
                     "You are not participating in `{}`, or it does not yet exist",
                     contest_id,
                 )
-            },
-        )?;
+            })
+            .await?;
 
         let doc = Html::parse_document(&doc);
         let sel_problem = Selector::parse("table tbody tr").unwrap();
@@ -382,8 +387,8 @@ impl AtCoder {
         Ok(ContestInfo { problems })
     }
 
-    pub fn test_cases(&self, problem_url: &str) -> Result<Vec<TestCase>> {
-        let doc = self.http_get(problem_url)?;
+    pub async fn test_cases(&self, problem_url: &str) -> Result<Vec<TestCase>> {
+        let doc = self.http_get(problem_url).await?;
 
         let doc = Html::parse_document(&doc);
 
@@ -458,10 +463,17 @@ impl AtCoder {
         Ok(ret)
     }
 
-    pub fn submit(&self, contest_id: &str, problem_id: &str, source_code: &str) -> Result<()> {
-        self.check_login()?;
+    pub async fn submit(
+        &self,
+        contest_id: &str,
+        problem_id: &str,
+        source_code: &str,
+    ) -> Result<()> {
+        self.check_login().await?;
 
-        let doc = self.http_get(&format!("/contests/{}/submit", contest_id))?;
+        let doc = self
+            .http_get(&format!("/contests/{}/submit", contest_id))
+            .await?;
 
         let (task_screen_name, language_id, language_name, csrf_token) = {
             let doc = Html::parse_document(&doc);
@@ -525,15 +537,17 @@ impl AtCoder {
             )
         };
 
-        let _ = self.http_post_form(
-            &format!("/contests/{}/submit", contest_id),
-            &[
-                ("data.TaskScreenName", &task_screen_name),
-                ("data.LanguageId", &language_id),
-                ("sourceCode", &source_code),
-                ("csrf_token", &csrf_token),
-            ],
-        )?;
+        let _ = self
+            .http_post_form(
+                &format!("/contests/{}/submit", contest_id),
+                &[
+                    ("data.TaskScreenName", &task_screen_name),
+                    ("data.LanguageId", &language_id),
+                    ("sourceCode", &source_code),
+                    ("csrf_token", &csrf_token),
+                ],
+            )
+            .await?;
 
         println!(
             "Submitted to problem `{}`, using language `{}`",
@@ -542,12 +556,14 @@ impl AtCoder {
         Ok(())
     }
 
-    pub fn submission_status(&self, contest_id: &str) -> Result<Vec<SubmissionResult>> {
-        self.check_login()?;
+    pub async fn submission_status(&self, contest_id: &str) -> Result<Vec<SubmissionResult>> {
+        self.check_login().await?;
 
         // FIXME: Currently, this returns only up to 20 submissions
 
-        let con = self.http_get(&format!("/contests/{}/submissions/me", contest_id))?;
+        let con = self
+            .http_get(&format!("/contests/{}/submissions/me", contest_id))
+            .await?;
         let doc = Html::parse_document(&con);
 
         let mut ret = vec![];
@@ -631,15 +647,17 @@ impl AtCoder {
         Ok(ret)
     }
 
-    pub fn submission_status_full(
+    pub async fn submission_status_full(
         &self,
         contest_id: &str,
         submission_id: usize,
     ) -> Result<FullSubmissionResult> {
-        let con = self.retrieve_text_or_error_message(
-            &format!("/contests/{}/submissions/{}", contest_id, submission_id),
-            || format!("Could not find `{}`", submission_id),
-        )?;
+        let con = self
+            .retrieve_text_or_error_message(
+                &format!("/contests/{}/submissions/{}", contest_id, submission_id),
+                || format!("Could not find `{}`", submission_id),
+            )
+            .await?;
         let doc = Html::parse_document(&con);
 
         // <table class="table table-bordered table-striped">
@@ -776,36 +794,38 @@ impl AtCoder {
         Ok(ret)
     }
 
-    fn retrieve_text_or_error_message<T: fmt::Display, F: FnOnce() -> T>(
+    async fn retrieve_text_or_error_message<T: fmt::Display, F: FnOnce() -> T>(
         &self,
         path: &str,
         context_on_logged_in: F,
-    ) -> anyhow::Result<String> {
-        self.http_get(path).map_err(|err| {
-            if matches!(err.downcast_ref::<reqwest::Error>(), Some(e) if e.status() == Some(reqwest::StatusCode::NOT_FOUND)) {
-                match self.username() {
+    ) -> Result<String> {
+        match self.http_get(path).await {
+            Err(err) if is_http_error(&err, reqwest::StatusCode::NOT_FOUND) => {
+                Err(match self.username().await {
                     Ok(username) => err.context(if username.is_some() {
                         anyhow!("{}", context_on_logged_in())
                     } else {
                         anyhow!("You are not logged in. Please login first")
                     }),
                     Err(err) => err,
-                }
-            } else {
-                err
+                })?
             }
-        })
+            ret => Ok(ret?),
+        }
     }
 
-    fn http_get(&self, path: &str) -> anyhow::Result<String> {
+    async fn http_get(&self, path: &str) -> Result<String> {
         self.client
             .get(&format!("{}{}", ATCODER_ENDPOINT, path).parse::<Url>()?)
+            .await
     }
 
-    fn http_post_form(&self, path: &str, form: &[(&str, &str)]) -> anyhow::Result<String> {
-        self.client.post_form(
-            &format!("{}{}", ATCODER_ENDPOINT, path).parse::<Url>()?,
-            form,
-        )
+    async fn http_post_form(&self, path: &str, form: &[(&str, &str)]) -> Result<String> {
+        self.client
+            .post_form(
+                &format!("{}{}", ATCODER_ENDPOINT, path).parse::<Url>()?,
+                form,
+            )
+            .await
     }
 }
