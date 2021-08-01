@@ -171,7 +171,7 @@ $ cargo atcoder result [FLAGS] <submission-id>
 
 ## macOS 環境の場合
 
-設定ファイルは `~/Library/Preferences/cargo-atcoder.toml` に生成されます。
+設定ファイルは `~/Library/Application Support/cargo-atcoder.toml` に生成されます。
 
 `x86_64-unknown-linux-musl` 向けのコンパイルを面倒無く実行するため、`[atcoder]` テーブル内で `use_cross = true` を指定するのがおすすめです。`use_cross` を有効化することで、[rust-embedded/cross](https://github.com/rust-embedded/cross) を使用したコンパイルを行うようになります。Docker が必要になるので注意してください。
 crossのインストールもお忘れなく。
