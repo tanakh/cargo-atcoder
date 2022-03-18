@@ -64,6 +64,7 @@ pub struct SubmissionResult {
 pub struct FullSubmissionResult {
     pub result: SubmissionResult,
     pub cases: Vec<CaseResult>,
+    pub compile_error_message: Option<String>,
 }
 
 #[derive(Debug)]
@@ -789,7 +790,19 @@ impl AtCoder {
             }
         }
 
-        let ret = FullSubmissionResult { result, cases };
+        // <h4>コンパイルエラー</h4>
+        // <pre>"error..."</pre>
+        let compile_error_message = (|| -> Option<String> {
+            let sel = Selector::parse("h4+pre").unwrap();
+            let mut it = doc.select(&sel);
+            Some(it.next()?.text().collect::<Vec<&str>>().join(""))
+        })();
+
+        let ret = FullSubmissionResult {
+            result,
+            cases,
+            compile_error_message,
+        };
 
         Ok(ret)
     }

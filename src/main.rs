@@ -1112,6 +1112,12 @@ fn print_full_result(res: &FullSubmissionResult, verbose: bool) -> Result<()> {
         res.result.memory.as_deref().unwrap_or("N/A")
     );
 
+    if let Some(msg) = res.compile_error_message.as_deref() {
+        println!();
+        println!("Compile Error:");
+        println!("{}", msg);
+    }
+
     if res
         .result
         .status
