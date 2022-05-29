@@ -67,6 +67,10 @@ struct NewOpt {
     #[structopt(short, long, value_name("NAME"))]
     bins: Vec<String>,
 
+    /// Set edition
+    #[structopt(long)]
+    edition: Option<String>,
+
     /// Skip warming-up after creating project.
     #[structopt(long)]
     skip_warmup: bool,
@@ -100,6 +104,11 @@ async fn new_project(opt: NewOpt) -> Result<()> {
 
     let stat = Command::new("cargo")
         .arg("new")
+        .args(
+            opt.edition
+                .map(|edition| vec!["--edition".to_owned(), edition])
+                .unwrap_or_default(),
+        )
         .arg(&opt.contest_id)
         .status()?;
     if !stat.success() {

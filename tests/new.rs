@@ -44,6 +44,28 @@ fn default() -> anyhow::Result<()> {
 }
 
 #[test]
+fn edition() -> anyhow::Result<()> {
+    let tempdir = TempDir::new("cargo-atcoder-test-new-edition")?;
+
+    assert_no_manifest(tempdir.path());
+
+    assert_cmd::Command::cargo_bin("cargo-atcoder")?
+        .args(&["atcoder", "new", "--edition", "2018", "abc126"])
+        .env("CARGO_ATCODER_TEST_CONFIG_DIR", tempdir.path())
+        .env("CARGO_ATCODER_TEST_CACHE_DIR", tempdir.path())
+        .current_dir(tempdir.path())
+        .timeout(TIMEOUT)
+        .assert()
+        .success();
+
+    let metadata = cargo_metadata(&tempdir.path().join("abc126").join("Cargo.toml"), false)?;
+
+    assert_eq!(find_member(&metadata, "abc126").edition, "2018");
+
+    tempdir.close().map_err(Into::into)
+}
+
+#[test]
 fn skip_warmup() -> anyhow::Result<()> {
     let tempdir = TempDir::new("cargo-atcoder-test-new-skip-warmup")?;
 
